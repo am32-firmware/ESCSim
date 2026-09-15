@@ -59,7 +59,7 @@ try:
                                    QSlider, QSpinBox, QVBoxLayout, QWidget,
                                    QLineEdit, QPlainTextEdit, QFileDialog,
                                    QDialog, QFormLayout, QDialogButtonBox,
-                                   QScrollArea, QTabWidget)
+                                   QScrollArea, QTabWidget, QSizePolicy)
 except ImportError:
     _here = os.path.dirname(os.path.abspath(__file__))
     if sys.platform == 'win32':
@@ -574,6 +574,8 @@ class EscFleet:
         self.tabs = QTabWidget()
         layout.addWidget(self.tabs)
         self.status = QLabel('')
+        self.status.setWordWrap(True)
+        self.status.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         layout.addWidget(self.status)
         self.set_count(args.esc_count)
         # These controls belong to the whole bench, including when ESC 1's
@@ -787,6 +789,8 @@ def main():
     fleet = EscFleet(args, app)
     signal.signal(signal.SIGINT, lambda *a: app.quit())
     signal.signal(signal.SIGTERM, lambda *a: app.quit())
+    from sitl_layout import fit_window
+    fit_window(fleet.win, 660, 860)
     fleet.win.show()
     try:
         app.exec()
@@ -841,7 +845,13 @@ def create_esc_panel(args, app, fleet, esc_index):
     signal.signal(signal.SIGINT, old_sigint)
     win = QWidget()
     win.setWindowTitle('AM32 SITL ESC %u' % (esc_index + 1))
-    top = QGridLayout(win)
+    from sitl_layout import scroll_panel
+    top = QVBoxLayout(win)
+    launch_bar = QHBoxLayout()
+    top.addLayout(launch_bar)
+    sections = QTabWidget()
+    sections.setObjectName('esc_sections')
+    top.addWidget(sections, 1)
 
     # ---- PWM/DShot input panel
     f1 = QGroupBox('PWM/DShot input (udp %s:%u)' % (args.host, args.port))
@@ -851,7 +861,7 @@ def create_esc_panel(args, app, fleet, esc_index):
         'frame. The frames are decoded by the unmodified AM32 firmware,\n'
         'including input auto-detection, CRC checking and arming.')
     g1 = QGridLayout(f1)
-    top.addWidget(f1, 0, 0)
+    sections.addTab(scroll_panel(f1), 'PWM / DShot')
 
     ds_enable = QCheckBox('Enable')
 
@@ -1002,11 +1012,13 @@ def create_esc_panel(args, app, fleet, esc_index):
         'stopped, and a reboot clears it, so this checkbox keeps re-sending\n'
         'the command until the replies show EDT frames. Needs bidir.')
     ds_edt.toggled.connect(ds_edt_changed)
-    bf.addWidget(ds_edt)
+    g1.addWidget(ds_edt, 3, 2, 1, 2)
     bf.addStretch(1)
     g1.addLayout(bf, 4, 0, 1, 4)
 
     ds_status = QLabel('arm: enable + hold zero throttle >1.5s')
+    ds_status.setWordWrap(True)
+    ds_status.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
     ds_status.setToolTip(
         'Guidance from the DShot sender: arming procedure, EDT progress\n'
         'and protocol notes.')
@@ -1150,7 +1162,7 @@ def create_esc_panel(args, app, fleet, esc_index):
         'input overrides the PWM/DShot wire until a reboot - the\n'
         'arbitration behaviour the failover parameter work is about.')
     g2 = QGridLayout(f2)
-    top.addWidget(f2, 0, 1)
+    sections.addTab(scroll_panel(f2), 'DroneCAN')
 
     # raw bus frame rate, counted straight off the multicast group so it
     # works with CAN control disabled and without the dronecan package
@@ -1316,9 +1328,13 @@ def create_esc_panel(args, app, fleet, esc_index):
         ptype_var.setRange(0, 5)
         ptype_var.setValue(1)
         gp.addWidget(ptype_var, 0, 1)
-        gp.addWidget(QLabel('(0=auto 1=dshot 2=servo 5=dronecan)'), 0, 2)
+        input_help = QLabel('0=auto 1=dshot 2=servo 5=dronecan')
+        input_help.setWordWrap(True)
+        gp.addWidget(input_help, 1, 0, 1, 3)
         param_status = QLabel('')
-        gp.addWidget(param_status, 1, 0, 1, 3)
+        param_status.setWordWrap(True)
+        param_status.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        gp.addWidget(param_status, 2, 0, 1, 3)
 
         def param_apply():
             log_action('param INPUT_SIGNAL_TYPE %d' % ptype_var.value())
@@ -1327,7 +1343,7 @@ def create_esc_panel(args, app, fleet, esc_index):
         apply_btn = QPushButton('Apply')
         apply_btn.setToolTip('Set the parameter over CAN, save to eeprom and reboot the ESC.')
         apply_btn.clicked.connect(param_apply)
-        gp.addWidget(apply_btn, 0, 3)
+        gp.addWidget(apply_btn, 0, 2)
     else:
         g2.addWidget(QLabel('pydronecan not available'), 0, 0)
 
@@ -1338,8 +1354,16 @@ def create_esc_panel(args, app, fleet, esc_index):
         'Controls for the physics simulation itself (not the ESC firmware):\n'
         'the motor/battery model, the simulation pace and the high rate\n'
         'views fed by the simulation state stream.')
+    def button_row(*widgets):
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        for widget in widgets:
+            layout.addWidget(widget)
+        return row
+
     g4 = QGridLayout(f4)
-    top.addWidget(f4, 3, 0, 1, 2)
+    sections.addTab(scroll_panel(f4), 'Simulation')
 
     models_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models')
 
@@ -1357,7 +1381,7 @@ def create_esc_panel(args, app, fleet, esc_index):
         'squared), plus battery voltage and internal resistance. These\n'
         'set how the virtual motor behaves; the ESC settings should\n'
         'match the motor, as on a real bench.')
-    g4.addWidget(model_combo, 0, 1)
+    g4.addWidget(model_combo, 0, 1, 1, 2)
 
     def model_load():
         name = model_combo.currentText()
@@ -1372,7 +1396,6 @@ def create_esc_panel(args, app, fleet, esc_index):
         'while spinning is like swapping the motor mid-flight - expect\n'
         'desyncs; switch at zero throttle for clean results.')
     load_btn.clicked.connect(model_load)
-    g4.addWidget(load_btn, 0, 2)
 
     def model_saved(path):
         # add a newly created/edited model to the list and select it
@@ -1408,7 +1431,6 @@ def create_esc_panel(args, app, fleet, esc_index):
         'inertia, ...). Keep the name to overwrite it, or change the name '
         'to save the edits as a new model.')
     edit_btn.clicked.connect(model_edit)
-    g4.addWidget(edit_btn, 0, 3)
 
     create_btn = QPushButton('Create...')
     create_btn.setToolTip(
@@ -1416,9 +1438,9 @@ def create_esc_panel(args, app, fleet, esc_index):
         'idle current, weight, propeller, power source) and save it into\n'
         'the models list, ready to Load.')
     create_btn.clicked.connect(model_create)
-    g4.addWidget(create_btn, 0, 4)
+    g4.addWidget(button_row(load_btn, edit_btn, create_btn), 1, 0, 1, 3)
     model_status = QLabel('')
-    g4.addWidget(model_status, 0, 5, 1, 2)
+    g4.addWidget(model_status, 2, 0, 1, 3)
 
     graph_i_check = QCheckBox('Current graph')
     graph_v_check = QCheckBox('Voltage graph')
@@ -1448,25 +1470,24 @@ def create_esc_panel(args, app, fleet, esc_index):
         'the sine/square throttle overrides to watch the motor track the\n'
         'commanded waveform, or with the speedup slider to see the rpm\n'
         'settle after a step.')
-    g4.addWidget(graph_i_check, 1, 0)
-    g4.addWidget(graph_v_check, 1, 1)
-    g4.addWidget(motorview_check, 1, 2)
-    g4.addWidget(graph_rpm_check, 1, 3)
+    g4.addWidget(graph_i_check, 3, 0)
+    g4.addWidget(graph_v_check, 3, 1)
+    g4.addWidget(motorview_check, 3, 2)
+    g4.addWidget(graph_rpm_check, 4, 0)
     sim_rate_label = QLabel('')
     sim_rate_label.setToolTip(
         'State stream rate actually arriving from the simulation (wall\n'
         'clock). It is the sample period in simulated time divided by the\n'
         'speedup, capped at about 200k samples/s.')
-    g4.addWidget(sim_rate_label, 1, 4)
-    g4.addWidget(demag_scope_check, 3, 2, 1, 3)
+    g4.addWidget(sim_rate_label, 4, 1, 1, 2)
 
     # simulation speedup, logarithmic 0.001x .. 2x, for slow motion in
     # the motor view
-    g4.addWidget(QLabel('Speedup:'), 2, 0)
+    g4.addWidget(QLabel('Speedup:'), 5, 0)
     speed_slider = QSlider(Qt.Horizontal)
     speed_slider.setRange(0, 165)
     speed_slider.setValue(150)
-    speed_slider.setMinimumWidth(200)
+    speed_slider.setMinimumWidth(120)
     speed_label = QLabel('1.000x')
 
     def slider_to_speedup(v):
@@ -1486,17 +1507,16 @@ def create_esc_panel(args, app, fleet, esc_index):
         'capture fine waveforms; the input frames you send arrive faster\n'
         'in simulated time, so some are dropped as on a busy wire.')
     speed_slider.valueChanged.connect(speed_changed)
-    g4.addWidget(speed_slider, 2, 1, 1, 2)
-    g4.addWidget(speed_label, 2, 3)
+    g4.addWidget(speed_slider, 5, 1)
     speed_1x = QPushButton('1x')
     speed_1x.setToolTip('Back to real time.')
     speed_1x.clicked.connect(lambda: speed_slider.setValue(150))
-    g4.addWidget(speed_1x, 2, 4)
+    g4.addWidget(button_row(speed_label, speed_1x), 5, 2)
 
     # stuck rotor: block the prop with a virtual obstruction, from
     # free to completely stuck, to exercise the firmware's stuck
     # rotor protection
-    g4.addWidget(QLabel('Stuck rotor:'), 5, 0)
+    g4.addWidget(QLabel('Stuck rotor:'), 8, 0)
     stuck_slider = QSlider(Qt.Horizontal)
     stuck_slider.setRange(0, 100)
     stuck_slider.setValue(0)
@@ -1517,8 +1537,7 @@ def create_esc_panel(args, app, fleet, esc_index):
         'firmware cuts the output after repeated commutation timeouts and\n'
         'stays off until the throttle is lowered to zero.')
     stuck_slider.valueChanged.connect(stuck_changed)
-    g4.addWidget(stuck_slider, 5, 1, 1, 2)
-    g4.addWidget(stuck_label, 5, 3)
+    g4.addWidget(stuck_slider, 8, 1)
 
     def stuck_release_clicked():
         # resend even when already showing free: the command is
@@ -1532,7 +1551,7 @@ def create_esc_panel(args, app, fleet, esc_index):
     stuck_release = QPushButton('Release')
     stuck_release.setToolTip('Clear the obstruction, back to a free rotor.')
     stuck_release.clicked.connect(stuck_release_clicked)
-    g4.addWidget(stuck_release, 5, 4)
+    g4.addWidget(button_row(stuck_label, stuck_release), 8, 2)
 
     # audio: play the ESC beeps (startup tune, DShot beacons) through
     # the host sound output, from the tone event stream on the state
@@ -1544,12 +1563,12 @@ def create_esc_panel(args, app, fleet, esc_index):
         'the motor windings driven with PWM at an audible frequency; here\n'
         'the same PWM is synthesized as a sine. Pitch is unaffected by\n'
         'the speedup slider, duration scales with it.')
-    g4.addWidget(audio_check, 4, 0)
+    g4.addWidget(audio_check, 7, 0)
     audio_slider = QSlider(Qt.Horizontal)
     audio_slider.setRange(0, 100)
     audio_slider.setValue(50)
     audio_slider.setToolTip('Playback volume, shared by both audio sources.')
-    g4.addWidget(audio_slider, 4, 1, 1, 2)
+    g4.addWidget(audio_slider, 7, 1)
     motor_audio_check = QCheckBox('Motor audio')
     motor_audio_check.setToolTip(
         'Play what the motor itself radiates, from the physics model:\n'
@@ -1557,7 +1576,7 @@ def create_esc_panel(args, app, fleet, esc_index):
         'noise, PWM whine and beeps sound as a real motor would (Audio\n'
         'plays clean synthesized tones instead). Pitch follows the\n'
         'speedup slider - slow motion sounds lower, as physics should.')
-    g4.addWidget(motor_audio_check, 4, 3)
+    g4.addWidget(motor_audio_check, 7, 2)
     tones = None
     tone_synth = None
     phys_stream = None
@@ -1619,7 +1638,7 @@ def create_esc_panel(args, app, fleet, esc_index):
     sample_spin.setValue(50.0)
     sample_spin.setSuffix(' us sample')
     sample_spin.setDecimals(1)
-    g4.addWidget(sample_spin, 3, 0, 1, 2)
+    g4.addWidget(sample_spin, 6, 0, 1, 3)
 
     def sample_changed(*a):
         update_sim_enable()
@@ -1773,7 +1792,7 @@ def create_esc_panel(args, app, fleet, esc_index):
                 demag_scope = DemagScopeWindow(
                     sim, lambda: demag_scope_check.setChecked(False),
                     scope_fine_capture, title='ESC %d' % (esc_index + 1),
-                    metadata=scope_metadata,
+                    metadata=scope_metadata, controls_window=fleet.win,
                     benchmark_status=lambda: (bench_label.text(), bench['active'])
                     if bench.get('recipe') else None)
             elif not sim.scope.enabled:
@@ -1907,7 +1926,7 @@ def create_esc_panel(args, app, fleet, esc_index):
         anim['comp'].setPos(240, 190)
         anim['rpm'] = scene.addSimpleText('')
         anim['rpm'].setPos(240, 12)
-        top.addWidget(view, 4, 0, 1, 2)
+        g4.addWidget(view, 12, 0, 1, 3)
 
     MODE_COLORS = {
         0: QColor(90, 90, 90),      # FLOAT
@@ -2031,11 +2050,12 @@ def create_esc_panel(args, app, fleet, esc_index):
         'mismeasuring (ADC scaling, commutation timing), which is often\n'
         'exactly what you want to see.')
     gs = QGridLayout(fs)
-    top.addWidget(fs, 1, 0, 1, 2)
+    top.addWidget(fs)
     sim_status = QLabel('rpm=- volt=- current=- armed=-')
     sim_status.setFont(fixed)
     gs.addWidget(sim_status, 0, 0)
     param_btn = QPushButton('Parameters...')
+    param_btn.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
     param_btn.setToolTip(
         'Edit the simulated ESC eeprom directly over the simulator link\n'
         '(no 4-way or DroneCAN parameter protocol involved).')
@@ -2067,7 +2087,7 @@ def create_esc_panel(args, app, fleet, esc_index):
     # ---- telemetry panel
     f3 = QGroupBox('telemetry (as the firmware reports it)')
     g3 = QGridLayout(f3)
-    top.addWidget(f3, 2, 0, 1, 2)
+    top.addWidget(f3)
     bds_label = QLabel('BDShot: -')
     bds_label.setToolTip(
         'Telemetry decoded from the BDShot replies on the signal wire:\n'
@@ -2117,12 +2137,12 @@ def create_esc_panel(args, app, fleet, esc_index):
     for r, (lab, edit, filt) in enumerate((
             ('SITL binary', sim_bin_edit, 'All files (*)'),
             ('EEPROM', sim_ee_edit, 'EEPROM (*.bin);;All files (*)'),
-            ('Bootloader (required for USB)', sim_bl_edit, 'All files (*)'))):
+            ('Bootloader', sim_bl_edit, 'All files (*)'))):
         gl.addWidget(QLabel(lab), r, 0)
-        gl.addWidget(edit, r, 1)
+        gl.addWidget(edit, r, 1, 1, 2)
         b = QPushButton('Browse...')
         b.clicked.connect(_browse(edit, lab, filt))
-        gl.addWidget(b, r, 2)
+        gl.addWidget(b, r, 3)
 
     gl.addWidget(QLabel('Input'), 3, 0)
     sim_input = QComboBox()
@@ -2133,9 +2153,9 @@ def create_esc_panel(args, app, fleet, esc_index):
         '(like the bundled one) ignores DShot input, so pick DShot here to '
         'drive it from the DShot pane, or DroneCAN to drive it over CAN. '
         'Auto uses whatever the eeprom is set to.')
-    gl.addWidget(sim_input, 3, 1)
+    gl.addWidget(sim_input, 3, 1, 1, 2)
     sim_verbose = QCheckBox('verbose')
-    gl.addWidget(sim_verbose, 3, 2)
+    gl.addWidget(sim_verbose, 5, 0)
     sim_accurate = QCheckBox('high accuracy')
     sim_accurate.setToolTip(
         'Run the simulator without pacing sleeps so it holds real time '
@@ -2182,6 +2202,8 @@ def create_esc_panel(args, app, fleet, esc_index):
     if esc_index == 0:
         gl.addWidget(usb_mode, 5, 0)
     usb_status = QLabel('off')
+    usb_status.setWordWrap(True)
+    usb_status.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
     usb_status.setTextInteractionFlags(Qt.TextSelectableByMouse)
     usb_status.setToolTip('The serial port to give the configurator.')
     if esc_index == 0:
@@ -2239,11 +2261,10 @@ def create_esc_panel(args, app, fleet, esc_index):
     bench_cancel = QPushButton('Stop benchmark')
     bench_label = QLabel('No benchmark selected')
     bench_label.setWordWrap(True)
-    g4.addWidget(QLabel('Benchmark:'), 6, 0)
-    g4.addWidget(bench_select, 6, 1, 1, 3)
-    g4.addWidget(bench_btn, 6, 4)
-    g4.addWidget(bench_cancel, 6, 5)
-    g4.addWidget(bench_label, 7, 0, 1, 6)
+    g4.addWidget(QLabel('Benchmark:'), 9, 0)
+    g4.addWidget(bench_select, 9, 1, 1, 2)
+    g4.addWidget(button_row(bench_btn, bench_cancel), 10, 0, 1, 3)
+    g4.addWidget(bench_label, 11, 0, 1, 3)
 
     def benchmark_controls():
         bench_select.setEnabled(not bench['active'])
@@ -2420,7 +2441,24 @@ def create_esc_panel(args, app, fleet, esc_index):
 
     sim_start_btn.clicked.connect(sim_launch)
     sim_stop_btn.clicked.connect(sim_halt)
-    top.addWidget(fl, 5, 0, 1, 2)
+    sections.addTab(scroll_panel(fl), 'SITL process')
+    launch_bar.addWidget(sim_start_btn)
+    launch_bar.addWidget(sim_stop_btn)
+    launch_bar.addWidget(demag_scope_check)
+    launch_bar.addStretch(1)
+    # Keep process state and live telemetry visible on every settings page.
+    top.insertWidget(1, sim_launch_status)
+    for label in (sim_launch_status, sim_status, bds_label, can_label):
+        label.setWordWrap(True)
+        label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+
+    for label in (model_status, bench_label):
+        label.setWordWrap(True)
+        label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+    # Long model/benchmark names should not determine the window width.
+    for combo in (model_combo, bench_select):
+        combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        combo.setMinimumContentsLength(12)
 
     # the virtual USB serial device and whatever sits behind it: the
     # fake FC for 4-way, or the 1-wire linker bridge for direct serial.

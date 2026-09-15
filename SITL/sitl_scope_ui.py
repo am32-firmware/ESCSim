@@ -11,14 +11,15 @@ import pyqtgraph as pg
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QPushButton, QComboBox, QDoubleSpinBox, QCheckBox, QFileDialog,
-    QGroupBox)
+    QGroupBox, QSizePolicy)
+from sitl_layout import fit_window, scroll_panel, tile_windows
 from sitl_scope import SIGNALS, signal_value
 
 COLORS = ('#ffe329', '#49c9ff', '#ee65d5', '#729aff')
 
 
 class DemagScopeWindow(QWidget):
-    def __init__(self, stream, on_close, fine_capture, title='ESC 1', metadata=None, benchmark_status=None):
+    def __init__(self, stream, on_close, fine_capture, title='ESC 1', metadata=None, benchmark_status=None, controls_window=None):
         super().__init__()
         self.stream, self.on_close = stream, on_close
         self.capture = stream.scope
@@ -32,7 +33,6 @@ class DemagScopeWindow(QWidget):
         self.readout_times = np.array([])
         self.readout_interval = 0.0
         self.setWindowTitle('AM32 virtual scope — DHO804 layout — ' + title)
-        self.resize(1240, 740)
         self.setStyleSheet('''
             QWidget { background:#202630; color:#e5ebf0; font-size:12px; }
             QGroupBox { border:1px solid #54606d; border-radius:5px;
@@ -51,6 +51,8 @@ class DemagScopeWindow(QWidget):
         self.state = QLabel('WAIT')
         header.addWidget(self.state)
         self.acquisition = QLabel('H 50 µs/div     A waiting for samples')
+        self.acquisition.setWordWrap(True)
+        self.acquisition.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         header.addWidget(self.acquisition, 1)
         self.trigger_label = QLabel('T  Commutation A')
         header.addWidget(self.trigger_label)
@@ -93,7 +95,10 @@ class DemagScopeWindow(QWidget):
             cursor.sigPositionChanged.connect(self.cursor_readout)
             cursor.sigDragged.connect(lambda line: self.inspect_at_us(line.value()))
         middle.addWidget(self.plot, 1)
-        side = QVBoxLayout()
+        sidebar = QWidget()
+        sidebar.setFixedWidth(300)
+        side = QVBoxLayout(sidebar)
+        side.setContentsMargins(0, 0, 0, 0)
         keys = QGridLayout()
         self.run_btn = QPushButton('RUN / STOP')
         self.run_btn.clicked.connect(self.run_stop)
@@ -109,6 +114,11 @@ class DemagScopeWindow(QWidget):
         keys.addWidget(auto, 1, 0)
         keys.addWidget(fine, 1, 1)
         side.addLayout(keys)
+        if controls_window is not None:
+            tile = QPushButton('Tile with controls')
+            tile.setToolTip('Arrange this scope and the main controls side by side on this display.')
+            tile.clicked.connect(lambda: tile_windows(controls_window, self))
+            side.addWidget(tile)
         setup = QGroupBox('Horizontal / Trigger')
         grid = QGridLayout(setup)
         self.timebase = QComboBox()
@@ -131,32 +141,48 @@ class DemagScopeWindow(QWidget):
                 ('Edge source', self.source), ('Slope', self.edge),
                 ('Level', self.level), ('Demag longer than', self.demag),
                 ('Pre-trigger', self.pre)]):
+            if isinstance(widget, QComboBox):
+                widget.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+                widget.setMinimumContentsLength(8)
             grid.addWidget(QLabel(label), row, 0); grid.addWidget(widget, row, 1)
-        side.addWidget(setup)
+        settings = QWidget()
+        settings_layout = QVBoxLayout(settings)
+        settings_layout.setContentsMargins(0, 0, 0, 0)
+        settings_layout.addWidget(setup)
         measure = QGroupBox('Measure / Cursor')
         ml = QVBoxLayout(measure)
         cursor_toggle = QCheckBox('Time cursors A / B'); cursor_toggle.setChecked(True)
         cursor_toggle.toggled.connect(lambda on: [c.setVisible(on) for c in self.cursors])
         ml.addWidget(cursor_toggle)
         self.cursor_label = QLabel(''); ml.addWidget(self.cursor_label)
+        self.cursor_label.setWordWrap(True)
         self.measure_label = QLabel('Waiting for a complete capture')
         self.measure_label.setWordWrap(True); ml.addWidget(self.measure_label)
-        side.addWidget(measure)
+        settings_layout.addWidget(measure)
+        settings_layout.addStretch(1)
+        self.settings_scroll = scroll_panel(settings)
+        side.addWidget(self.settings_scroll, 1)
         save = QPushButton('Save CSV + setup'); save.clicked.connect(self.save_csv)
         png = QPushButton('Save screen PNG'); png.clicked.connect(self.save_png)
-        side.addWidget(save); side.addWidget(png); side.addStretch(1)
-        middle.addLayout(side)
+        side.addWidget(save); side.addWidget(png)
+        middle.addWidget(sidebar)
         outer.addLayout(middle, 1)
         self.channels = []
         self.channel_values = []
         bottom = QHBoxLayout()
+        bottom.setSpacing(5)
         for i, (source_key, scale, offset) in enumerate([
                 ('vA', 5, -2.5), ('iA', 20, -1), ('eA', 10, -1), ('comp', 1, -3.5)]):
             box = QGroupBox('CH%d' % (i + 1))
             box.setStyleSheet('QGroupBox { color:%s; border:1px solid %s; }' % (COLORS[i], COLORS[i]))
             controls = QGridLayout(box)
+            controls.setContentsMargins(6, 10, 6, 6)
+            controls.setHorizontalSpacing(4)
             enabled = QCheckBox('On'); enabled.setChecked(i in (0, 1))
             signal = QComboBox()
+            signal.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+            signal.setMinimumContentsLength(8)
+            signal.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
             for key, (label, unit, _) in SIGNALS.items():
                 signal.addItem(label + ' (' + unit + ')', key)
             signal.setCurrentIndex(signal.findData(source_key))
@@ -167,7 +193,8 @@ class DemagScopeWindow(QWidget):
             controls.addWidget(QLabel('Position (div)'), 2, 0); controls.addWidget(position, 2, 1)
             value = QLabel('—')
             value.setStyleSheet('color:%s; font-size:14px; font-weight:bold' % COLORS[i])
-            value.setMinimumWidth(120)
+            value.setMinimumWidth(70)
+            value.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
             value.setToolTip('Nearest recorded sample at the mouse or dragged time cursor; no interpolation across PWM edges.')
             controls.addWidget(QLabel('At cursor'), 3, 0)
             controls.addWidget(value, 3, 1)
@@ -179,6 +206,8 @@ class DemagScopeWindow(QWidget):
             bottom.addWidget(box)
         outer.addLayout(bottom)
         self.notice = QLabel('Virtual physics • DC terminal voltages relative to battery negative • 12 × 8 divisions')
+        self.notice.setWordWrap(True)
+        self.notice.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         outer.addWidget(self.notice)
         for widget in (self.timebase, self.mode, self.trigger, self.phase, self.source, self.edge):
             widget.currentIndexChanged.connect(self.setup_changed)
@@ -188,6 +217,7 @@ class DemagScopeWindow(QWidget):
         self.plot.scene().sigMouseMoved.connect(self.inspect_mouse)
         self.cursor_readout()
         self.arm()
+        fit_window(self, 1200, 860)
 
     def setup(self):
         return dict(trigger=self.trigger.currentText(), phase=self.phase.currentIndex(),

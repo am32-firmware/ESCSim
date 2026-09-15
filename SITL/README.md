@@ -291,7 +291,7 @@ Tools in `SITL/`:
   on the ports this GUI drives, instead of starting it separately: pick
   the binary (one is bundled with the packaged build, or Browse), an
   eeprom and an optional bootloader, and Start; leave it stopped to
-  drive a simulator you ran yourself. The USB mode box in the same panel
+  drive a simulator you ran yourself. The USB mode box above the ESC tabs
   presents the running ESC to configurators as a virtual USB serial
   device (see above), either as **USB 4-way** through the fake flight
   controller or as **USB serial** straight onto the signal wire; it
@@ -591,6 +591,18 @@ the same traffic over a real USB/IP serial device (requires passwordless
 sudo for attach/detach).
 
 ### Demagnetisation bench and DHO804-style virtual scope
+
+The main window uses **PWM / DShot**, **DroneCAN**, **Simulation** and
+**SITL process** pages inside each ESC tab. Start/stop, the scope checkbox
+and live telemetry stay visible while you change pages. Settings scroll
+when needed; the motor animation is in the Simulation page.
+
+The main window and scope size themselves to the display's usable area,
+including desktop scaling. On a 1920×1080 laptop, use **Tile with controls**
+in the scope to arrange both windows side by side. Trigger and measurement
+settings scroll independently on shorter displays, while acquisition buttons,
+traces and all four channel cursor readouts remain visible. Resize or maximize
+the scope when you want more trace area.
 
 The **Virtual scope (DHO804)** checkbox opens a four-channel triggered scope
 with physical voltage/current traces, time/div and channel scales, Single

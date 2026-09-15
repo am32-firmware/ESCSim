@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from PySide6.QtCore import QRect
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QTabWidget
 from sitl_gui import EscFleet
 from sitl_layout import fit_window, tile_windows
@@ -23,6 +24,14 @@ class LaptopLayoutTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
         cls.app.setStyle('Fusion')
+        cls.original_font = cls.app.font()
+        # GitHub's Linux runner resolves Sans Serif to DejaVu Sans. Its
+        # wider glyphs exposed channel panels that could not tile at 150%.
+        cls.app.setFont(QFont('DejaVu Sans', 9))
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.app.setFont(cls.original_font)
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix='sitl-layout-')

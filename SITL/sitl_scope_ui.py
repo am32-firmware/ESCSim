@@ -190,7 +190,7 @@ class DemagScopeWindow(QWidget):
             position = QDoubleSpinBox(); position.setRange(-100, 100); position.setDecimals(2); position.setValue(offset)
             controls.addWidget(enabled, 0, 0); controls.addWidget(signal, 0, 1)
             controls.addWidget(QLabel('Units/div'), 1, 0); controls.addWidget(gain, 1, 1)
-            controls.addWidget(QLabel('Position (div)'), 2, 0); controls.addWidget(position, 2, 1)
+            controls.addWidget(QLabel('Pos (div)'), 2, 0); controls.addWidget(position, 2, 1)
             value = QLabel('—')
             value.setStyleSheet('color:%s; font-size:14px; font-weight:bold' % COLORS[i])
             value.setMinimumWidth(70)

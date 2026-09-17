@@ -23,6 +23,7 @@ import time
 import sitl_params
 import msp_framing
 from sitl_fourway_server import crc16_xmodem
+from run_test import WatchStream
 
 
 def _kill_package_processes(proc):
@@ -51,6 +52,31 @@ def _kill_package_processes(proc):
                    for group, state in map(str.split, rows.splitlines())):
                 raise
     proc.wait(timeout=10)
+
+
+def _wait_for_firmware_ready(state_port, timeout=90):
+    """Keep zero throttle until the firmware has armed and finished beeping."""
+    watch = WatchStream('127.0.0.1', state_port,
+                        [('armed', 1, False, None),
+                         ('sitl_tone_active', 1, False, None)])
+    try:
+        deadline = time.monotonic() + timeout
+        armed, tone = [], []
+        while time.monotonic() < deadline:
+            if watch.resolved is not None and watch.resolved != [1, 1]:
+                raise RuntimeError('firmware readiness symbols unavailable: %s' % watch.resolved)
+            armed, tone = watch.get(0), watch.get(1)
+            # Ignore silence observed before arming: the arming tones run
+            # inside an interrupt handler and input is deaf until they finish.
+            if (armed and armed[-1][1] == 1 and tone and tone[-1][1] == 0
+                    and tone[-1][0] >= armed[-1][0]):
+                print('PASS: firmware armed and silent at t=%.3fs' % tone[-1][0], flush=True)
+                return
+            time.sleep(.1)
+        raise RuntimeError('firmware did not become throttle-ready: armed=%s tone=%s'
+                           % (armed[-1:] or None, tone[-1:] or None))
+    finally:
+        watch.close()
 
 
 def main():
@@ -207,9 +233,13 @@ def main():
                 if time.monotonic() > deadline:
                     raise RuntimeError('bootloader did not hand off: ' + status)
                 time.sleep(.5)
-            time.sleep(6)
+            if os.name == 'nt':
+                # The Windows host binary does not export variable-watch symbols.
+                time.sleep(6)
+            else:
+                _wait_for_firmware_ready(18471)
             command('ds_value 1000')
-            deadline = time.monotonic() + 15
+            deadline = time.monotonic() + 45
             while True:
                 status = command('status', 'STATUS BDShot')
                 rpm = re.search(r'rpm=\s*(\d+)', status)

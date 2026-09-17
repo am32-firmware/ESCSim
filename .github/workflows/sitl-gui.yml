@@ -20,8 +20,10 @@ jobs:
         with:
           submodules: false
 
-      - name: Check out the firmware submodule
-        run: git submodule update --init --depth 1 modules/am32-firmware
+      - name: Check out firmware and latest bootloader master
+        run: |
+          git submodule update --init --depth 1 modules/am32-firmware
+          git submodule update --init --remote --depth 1 modules/am32-bootloader
 
       - uses: actions/setup-python@v5
         with:
@@ -38,12 +40,17 @@ jobs:
       - name: Build SITL and GUI
         run: |
           make -C modules/am32-firmware AM32_SITL_CAN
-          python3 SITL/build_sitl_gui.py
+          make -C modules/am32-bootloader AM32_SITL_BOOTLOADER_PB4_CAN
+          python3 SITL/package_linux.py
+          mkdir -p build/linux-unpacked
+          tar -xzf dist/am32-sitl-gui-linux.tar.gz -C build/linux-unpacked
+          python3 SITL/windows_package_test.py --exe build/linux-unpacked/am32-sitl-gui-linux/am32-sitl-gui
 
       - uses: actions/upload-artifact@v4
         with:
           name: am32-sitl-gui-linux
-          path: dist/am32-sitl-gui
+          path: dist/am32-sitl-gui-linux.tar.gz
+          if-no-files-found: error
 
   build-macos:
     strategy:

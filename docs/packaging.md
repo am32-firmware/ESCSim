@@ -33,8 +33,78 @@ exactly one platform library under
 The Windows application is installed per-user. Its installer contains the
 SHA-256-verified upstream usbip-win2 prerequisite and offers its separate,
 elevated driver setup only when needed. Release signing secrets are not stored
-in this repository. Public releases must sign the executable/installer and
-notarize the macOS app before upload.
+in this repository. CI macOS packages are ad-hoc signed, not notarized. The
+release notes disclose this. Developer ID signing/notarization, if configured,
+must happen on the build host before CI archives the app; the release script
+preserves those archive bytes and does not sign or modify the app.
+
+## GitHub releases from CI
+
+`scripts/release.py` runs on Linux, macOS or Windows with Python 3.12+ and an
+authenticated GitHub CLI (`gh auth login`). It downloads existing packages;
+it does not build locally, push commits or move existing tags.
+
+All selected packages must come from successful `sitl-gui.yml` and
+`package.yml` runs for the **same ESCSim commit** in the selected repository.
+Pull-request runs and fork artifacts are excluded. SITL packages for Windows,
+Linux and at least one macOS architecture are required. Both Mac architectures,
+the calibration capture tools, and Renode application packages are included
+when available for that commit. Unrelated native libraries and test logs are
+not release assets. Expired artifacts and incomplete platform sets are errors.
+
+Check the selection and download a reviewable release directory first:
+
+```sh
+python3 scripts/release.py v1.1.0 --ref main --dry-run
+python3 scripts/release.py v1.1.0 --ref main --prepare-only
+```
+
+The default repository is `am32-firmware/ESCSim`; override it with `--repo`.
+With no `--ref`, the script uses the existing release tag, or `main` if that
+tag does not exist. An existing tag must resolve to the selected commit.
+Downloads are cached by artifact ID under `dist/releases/TAG/.artifacts`,
+and verified against GitHub's SHA-256 digest when one is provided. Use
+`--output DIRECTORY` to choose a different staging directory.
+
+The staged assets include application archives, the Windows Renode installer
+when available, `SHA256SUMS`, and `release-manifest.json`. The manifest records
+the source commit, workflow/run/artifact IDs and package checksums. Existing
+package archives are copied unchanged out of the enclosing Actions ZIP;
+legacy loose Linux Renode/capture uploads become tarballs with executable
+permissions preserved. Legacy macOS Renode uploads without an app archive,
+and Linux SITL uploads without the bundled bootloader, must be rebuilt with
+the current workflows before release.
+
+Create and publish the release after reviewing its staged files:
+
+```sh
+python3 scripts/release.py v1.1.0 --ref COMMIT_SHA --notes-file release-notes.md
+```
+
+Use the full commit SHA printed by the preparation step so an advancing main
+branch cannot change the selection. `--notes-file` adds text to the generated
+package instructions and CI links; `--title` overrides the release title.
+`--draft` leaves the result unpublished, and `--prerelease` marks a prerelease.
+
+Publication first creates a draft, uploads the complete asset set, checks its
+names, sizes and available SHA-256 digests, then publishes. An interrupted or
+failed upload leaves a draft: rerun the same command with `--resume` to retry.
+Existing published releases are never overwritten. A draft can only be
+resumed for its original target commit.
+
+If packages are missing, run the workflows on the intended release branch or
+tag, wait for successful completion, then run the release script again:
+
+```sh
+gh workflow run sitl-gui.yml --repo am32-firmware/ESCSim --ref main
+gh workflow run package.yml --repo am32-firmware/ESCSim --ref main
+```
+
+The `package` workflow archives the macOS `.app` before uploading, preserving
+framework symlinks and signatures. Linux SITL release tarballs bundle both
+AM32 firmware and bootloader; Windows SITL packages also include the USB/IP
+installer. Renode applications obtain their emulator and firmware through
+the existing setup/download tools.
 
 ## Continuous integration
 

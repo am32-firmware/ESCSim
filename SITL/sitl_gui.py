@@ -616,7 +616,6 @@ class EscFleet:
 
     def require_stopped(self):
         if self.panels and (self.panels[0].usb_mode.currentIndex() != USB_OFF
-                            or not self.panels[0].usb_mode.isEnabled()
                             or any(p.runner.is_running() for p in self.panels)):
             raise ValueError('stop all simulations and USB before changing ESC count')
 
@@ -678,7 +677,9 @@ class EscFleet:
 
     def refresh(self):
         usb = self.panels[0].usb_mode
-        self.count.setEnabled(usb.currentIndex() == USB_OFF and usb.isEnabled()
+        # An unsupported USB platform disables its selector, but should
+        # still allow multiple ESCs. Starting USB already selects a mode.
+        self.count.setEnabled(usb.currentIndex() == USB_OFF
                               and not any(p.runner.is_running() for p in self.panels))
         self.direct.setEnabled(usb.currentIndex() == USB_OFF and usb.isEnabled())
 

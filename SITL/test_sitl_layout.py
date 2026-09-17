@@ -65,6 +65,20 @@ class LaptopLayoutTests(unittest.TestCase):
         self.app.processEvents()
         self.tmp.cleanup()
 
+    def test_disabled_usb_does_not_lock_esc_count(self):
+        self.fleet.panels[0].usb_mode.setEnabled(False)
+        self.fleet.refresh()
+        self.assertTrue(self.fleet.count.isEnabled())
+        def eeprom(index=0):
+            path = Path(self.tmp.name) / ('esc%u.bin' % index)
+            path.write_bytes(bytes(256))
+            return str(path)
+        with patch('sim_runner.bundled_eeprom', side_effect=eeprom):
+            self.fleet.set_count(8)
+            self.assertEqual(self.fleet.tabs.count(), 8)
+            self.fleet.set_count(1)
+            self.assertEqual(self.fleet.tabs.count(), 1)
+
     def test_pages_fit_and_launch_controls_remain_visible(self):
         # Full live telemetry must wrap, not increase the window minimum.
         for label in self.fleet.win.findChildren(QLabel):

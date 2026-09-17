@@ -12,6 +12,7 @@ does not cross compile.
 
 import argparse
 import os
+import plistlib
 import shutil
 import subprocess
 import sys
@@ -82,7 +83,11 @@ def main():
            '--distpath', os.path.join(ROOT, 'dist'),
            '--workpath', os.path.join(ROOT, 'build', 'pyinstaller-sitl'),
            '--specpath', os.path.join(ROOT, 'build')]
-    cmd.append('--onedir' if args.onedir else '--onefile')
+    # A macOS .app keeps signed frameworks and both child executables in
+    # place; a one-file app must unpack and relaunch them on every start.
+    cmd.append('--onedir' if args.onedir or sys.platform == 'darwin' else '--onefile')
+    if sys.platform == 'darwin':
+        cmd += ['--osx-bundle-identifier', 'org.am32.escsim.sitl']
     for h in HIDDEN:
         cmd += ['--hidden-import', h]
     for e in EXCLUDES:
@@ -117,7 +122,7 @@ def main():
         if args.bootloader:
             name = 'AM32_SITL_BOOTLOADER' + ('.exe' if sys.platform.startswith('win') else '')
             staged = os.path.join(stage, name)
-            shutil.copyfile(args.bootloader, staged)
+            shutil.copy2(args.bootloader, staged)
             cmd += ['--add-binary', '%s%s%s' % (staged, sep, 'sitl')]
         for runtime in args.runtime:
             cmd += ['--add-binary', '%s%s%s' % (runtime, sep, 'sitl')]
@@ -138,10 +143,26 @@ def main():
     subprocess.run(cmd, check=True, cwd=ROOT)
 
     out = os.path.join(ROOT, 'dist', args.name)
-    if sys.platform.startswith('win'):
+    if sys.platform == 'darwin':
+        out += '.app'
+        plist_path = os.path.join(out, 'Contents', 'Info.plist')
+        with open(plist_path, 'rb') as src:
+            info = plistlib.load(src)
+        info['NSLocalNetworkUsageDescription'] = (
+            'ESCSim exchanges UDP motor commands and telemetry with its '
+            'bundled AM32 simulators and local DroneCAN nodes.')
+        with open(plist_path, 'wb') as dst:
+            plistlib.dump(info, dst)
+        # Updating Info.plist invalidates PyInstaller's outer app signature.
+        subprocess.run(['codesign', '--force', '--sign', '-', out], check=True)
+    elif sys.platform.startswith('win'):
         out += '.exe'
     if os.path.exists(out):
-        print('built %s (%.1f MB)' % (out, os.path.getsize(out) / 1e6))
+        size = (sum(os.path.getsize(os.path.join(folder, name))
+                    for folder, _, names in os.walk(out) for name in names
+                    if not os.path.islink(os.path.join(folder, name)))
+                if os.path.isdir(out) else os.path.getsize(out))
+        print('built %s (%.1f MB)' % (out, size / 1e6))
     else:
         print('build finished but %s is missing' % out)
 

@@ -1,0 +1,23 @@
+This package includes AM32 firmware and AM32 bootloader SITL executables
+and the ESCSim Python GUI. Source:
+https://github.com/am32-firmware/ESCSim
+https://github.com/am32-firmware/AM32
+https://github.com/am32-firmware/AM32-bootloader
+
+The GUI includes Python, PySide6/Qt, PyQtGraph, NumPy, DroneCAN, pymavlink,
+pyserial and their dependencies, packaged with PyInstaller. Their licences
+and copyright notices remain in the application bundle where supplied by
+the distributions. PySide6 and Qt are used under their LGPL terms; a copy
+of LGPLv3 is provided as LGPL-3.0.txt. They are dynamically loaded libraries
+inside the .app and may be replaced with compatible modified versions;
+modifying the app requires signing the modified bundle again.
+
+https://www.python.org/psf/license/
+https://code.qt.io/cgit/pyside/pyside-setup.git/
+https://code.qt.io/cgit/qt/
+https://github.com/pyqtgraph/pyqtgraph
+https://github.com/numpy/numpy
+https://github.com/dronecan/pydronecan
+https://github.com/ArduPilot/pymavlink
+https://github.com/pyserial/pyserial
+https://github.com/pyinstaller/pyinstaller

@@ -64,7 +64,7 @@ class BootloaderSourceTests(unittest.TestCase):
     def test_explicit_checkout_keeps_local_edits_without_fetching(self):
         (self.upstream / 'sitlmakefile.mk').write_text('developer edit')
         with patch.object(build_win11, 'run', side_effect=AssertionError('unexpected fetch')):
-            self.assertEqual(build_win11.bootloader_source(str(self.upstream)), self.upstream)
+            self.assertEqual(build_win11.bootloader_source(str(self.upstream)), self.upstream.resolve())
         self.assertEqual((self.upstream / 'sitlmakefile.mk').read_text(), 'developer edit')
 
 

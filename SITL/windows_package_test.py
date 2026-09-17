@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Smoke-test the packaged Windows GUI; --usb also tests the installed driver.
+"""Smoke-test the packaged GUI executable or macOS .app; --usb tests Windows USB.
 
 Runs against temporary EEPROM storage and owns/stops the GUI and simulator.
 The CI test needs no driver installation. On win11 --usb exercises a real COM
@@ -11,9 +11,11 @@ from pathlib import Path
 import queue
 import re
 import shutil
+import signal
 import socket
 import struct
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -21,6 +23,34 @@ import time
 import sitl_params
 import msp_framing
 from sitl_fourway_server import crc16_xmodem
+
+
+def _kill_package_processes(proc):
+    """Reap the GUI and kill any simulators left after graceful shutdown.
+
+    On POSIX the GUI must be launched with start_new_session=True, so its
+    PID identifies a private process group inherited by its simulators.
+    Clean that group even when the GUI has already crashed or exited.
+    """
+    if os.name == 'nt':
+        if proc.poll() is None:
+            subprocess.run(['taskkill', '/PID', str(proc.pid), '/T', '/F'], check=False)
+    else:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass  # Normal shutdown may have already removed the whole group.
+        except PermissionError:
+            if sys.platform != 'darwin':
+                raise
+            # Darwin can return EPERM for a group containing only zombies.
+            # Do not hide a real signal denial while a group member is alive.
+            rows = subprocess.check_output(
+                ['/bin/ps', '-axo', 'pgid=,stat='], text=True, timeout=5)
+            if any(int(group) == proc.pid and not state.startswith('Z')
+                   for group, state in map(str.split, rows.splitlines())):
+                raise
+    proc.wait(timeout=10)
 
 
 def main():
@@ -32,8 +62,14 @@ def main():
         tmp = Path(tmp)
         ee = sitl_params.write_eeprom(Path(__file__).parent / 'data/VIMDRONES_NANO_2216/sitl.param', tmp / 'eeprom.bin')
         # Spaces in the executable path exercise quoting of the process chain.
-        exe = tmp / 'am32-sitl-gui.exe'
-        shutil.copyfile(args.exe, exe)
+        source = Path(args.exe).resolve()
+        if source.suffix == '.app':
+            bundle = tmp / source.name
+            shutil.copytree(source, bundle, symlinks=True)
+            exe = bundle / 'Contents/MacOS/am32-sitl-gui'
+        else:
+            exe = tmp / source.name
+            shutil.copy2(source, exe)
         env = dict(os.environ, QT_QPA_PLATFORM='offscreen')
         # Verify that child executables use their bundled runtime, rather
         # than accidentally finding the build machine's Cygwin installation.
@@ -42,7 +78,8 @@ def main():
         log = (tmp / 'gui.log').open('w')
         proc = subprocess.Popen([str(exe), '--control-port', '28472', '--port', '18470',
                                  '--state-port', '18471', '--can-uri', 'mcast:8'],
-                                env=env, stdout=log, stderr=log)
+                                env=env, stdout=log, stderr=log,
+                                start_new_session=(os.name != 'nt'))
         sock = None
         serial_port = None
         responses = queue.Queue()
@@ -160,9 +197,17 @@ def main():
             command('ds_bidir 1')
             command('ds_value 0')
             command('ds_enable 1')
+            # Allow bootloader handoff and firmware startup on slower hosts.
+            # Then hold zero throttle through the firmware arming period.
+            deadline = time.monotonic() + 45
+            while True:
+                status = command('sim_log', 'STATUS sim_log:')
+                if 'PWM/DShot input on udp port' in status:
+                    break
+                if time.monotonic() > deadline:
+                    raise RuntimeError('bootloader did not hand off: ' + status)
+                time.sleep(.5)
             time.sleep(6)
-            logs = command('sim_log', 'STATUS sim_log:')
-            assert 'PWM/DShot input on udp port' in logs, logs
             command('ds_value 1000')
             deadline = time.monotonic() + 15
             while True:
@@ -258,9 +303,7 @@ def main():
                         proc.wait(timeout=25)
                     except (OSError, subprocess.TimeoutExpired):
                         pass
-                if proc.poll() is None:
-                    subprocess.run(['taskkill', '/PID', str(proc.pid), '/T', '/F'], check=False)
-                    proc.wait(timeout=10)
+            _kill_package_processes(proc)
             if sock:
                 sock.close()
             log.close()

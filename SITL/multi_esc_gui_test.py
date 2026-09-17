@@ -66,28 +66,32 @@ def main():
                     assert first.usb_mode.isEnabled(), 'USB worker did not finish'
                     assert first.usb_mode.currentIndex() == mode, first.usb_status.text()
                     if mode: assert first.usb_status.text() == 'test-serial'
-                for mode in (USB_BETAFLIGHT, USB_FOURWAY):
-                    usb(mode)
-                    kwargs, fc = captured[-1]
-                    assert kwargs['esc_ports'] == [p.args.port for p in fleet.panels]
-                    assert kwargs['state_ports'] == [p.args.state_port for p in fleet.panels]
-                    assert fc.config.motor_count == fc.fourway.esc_count == 8
-                    for panel in fleet.panels:
-                        try: panel.command('ds_enable 1', lambda _: None)
+                if first.usb_mode.isEnabled():
+                    for mode in (USB_BETAFLIGHT, USB_FOURWAY):
+                        usb(mode)
+                        kwargs, fc = captured[-1]
+                        assert kwargs['esc_ports'] == [p.args.port for p in fleet.panels]
+                        assert kwargs['state_ports'] == [p.args.state_port for p in fleet.panels]
+                        assert fc.config.motor_count == fc.fourway.esc_count == 8
+                        for panel in fleet.panels:
+                            try: panel.command('ds_enable 1', lambda _: None)
+                            except ValueError: pass
+                            else: raise AssertionError('USB did not exclude a tab signal writer')
+                        try: fleet.set_count(1)
                         except ValueError: pass
-                        else: raise AssertionError('USB did not exclude a tab signal writer')
-                    try: fleet.set_count(1)
-                    except ValueError: pass
-                    else: raise AssertionError('count changed with USB attached')
+                        else: raise AssertionError('count changed with USB attached')
+                        usb(0)
+                        assert not fc.running
+                    fleet.panels[0].command('usb_target 8', lambda _: None)
+                    usb(USB_SERIAL)
+                    assert direct[-1]['sitl_port'] == fleet.panels[7].args.port
+                    assert direct[-1]['state_port'] == fleet.panels[7].args.state_port
+                    assert (direct[-1]['endpoint'].vid, direct[-1]['endpoint'].pid) == (
+                        sitl_usbip.DIRECT_VENDOR_ID, sitl_usbip.DIRECT_PRODUCT_ID)
                     usb(0)
-                    assert not fc.running
-                fleet.panels[0].command('usb_target 8', lambda _: None)
-                usb(USB_SERIAL)
-                assert direct[-1]['sitl_port'] == fleet.panels[7].args.port
-                assert direct[-1]['state_port'] == fleet.panels[7].args.state_port
-                assert (direct[-1]['endpoint'].vid, direct[-1]['endpoint'].pid) == (
-                    sitl_usbip.DIRECT_VENDOR_ID, sitl_usbip.DIRECT_PRODUCT_ID)
-                usb(0)
+                else:
+                    assert first.usb_mode.currentIndex() == 0
+                    print('SKIP: USB attachment unavailable on this platform')
                 fleet.win.show()
                 app.processEvents()
                 # With no firmware listening, each EEPROM read takes 1.5s.
@@ -145,7 +149,7 @@ def main():
                     app.processEvents()
                     fleet.set_count(8)
                     app.processEvents()
-                print('PASS: eight ESC tabs, independent storage, shared USB routing, writer exclusion and tab recreation')
+                print('PASS: eight ESC tabs, independent storage and tab recreation')
             finally:
                 fleet.close()
                 fleet.win.close()

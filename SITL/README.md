@@ -365,7 +365,30 @@ Builds and runs natively (Apple Silicon or Intel) with the stock Xcode
 command line tools: `make -C modules/am32-firmware AM32_SITL_CAN`. The
 GUI bootstrap is the same
 `python3 SITL/make_gui_env.py`. Multicast CAN over loopback works
-without configuration.
+without configuration on some Macs; for a local-only bench where it does
+not, use `sudo route -n add -net 239.65.82.0/24 -interface lo0`.
+Allow Local Network access when macOS asks, including for an SSH session
+used to run network tests.
+
+To build a standalone macOS package with both simulator binaries:
+
+```sh
+make -C modules/am32-firmware AM32_SITL_CAN
+make -C modules/am32-bootloader AM32_SITL_BOOTLOADER_PB4_CAN
+python3 -m pip install -r SITL/requirements.txt pyinstaller
+python3 SITL/package_macos.py
+```
+
+This produces `dist/am32-sitl-gui-macos-arm64.zip` on Apple Silicon or
+`dist/am32-sitl-gui-macos-x86_64.zip` on Intel. The ZIP contains a `.app`,
+README and licences; users need neither Python nor a toolchain. The GUI
+build uses a stable bundle ID, explains Local Network access, and keeps
+both signed simulator executables inside the app. The package is ad-hoc
+signed, not Apple-notarized. USB/IP attachment remains Linux/Windows only.
+
+CI builds each Mac architecture natively and smoke-tests the extracted ZIP.
+The same smoke test can be run locally with
+`python3 SITL/windows_package_test.py --exe dist/am32-sitl-gui.app`.
 
 ## Windows
 

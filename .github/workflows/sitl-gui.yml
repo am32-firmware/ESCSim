@@ -1,7 +1,7 @@
 name: sitl-gui
 
 # Packages the SITL control GUI and the calibration capture GUI as
-# single executables for Linux and Windows. The SITL binary is bundled
+# executables for Linux/Windows and app bundles for macOS. The SITL binary is bundled
 # with the control GUI so it runs the simulator out of the box;
 # PyInstaller does not cross compile, so each platform builds its own.
 
@@ -44,6 +44,65 @@ jobs:
         with:
           name: am32-sitl-gui-linux
           path: dist/am32-sitl-gui
+
+  build-macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            arch: arm64
+          - os: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Check out firmware and latest bootloader master
+        run: |
+          git submodule update --init --depth 1 modules/am32-firmware
+          git submodule update --init --remote --depth 1 modules/am32-bootloader
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: python3 -m pip install -r SITL/requirements.txt pyinstaller
+
+      - name: Route local DroneCAN multicast
+        run: sudo route -n add -net 239.65.82.0/24 -interface lo0
+
+      - name: Build firmware and bootloader
+        run: |
+          make -C modules/am32-firmware -j3 AM32_SITL_CAN
+          make -C modules/am32-bootloader -j3 AM32_SITL_BOOTLOADER_PB4_CAN
+          python3 SITL/bootloader_seed_test.py --bootloader modules/am32-bootloader/obj/AM32_SITL_BOOTLOADER_PB4_CAN_*.elf
+
+      - name: Build macOS app and ZIP
+        run: python3 SITL/package_macos.py
+
+      - name: Test extracted release ZIP
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          mkdir -p build/macos-unpacked
+          ditto -x -k dist/am32-sitl-gui-macos-${{ matrix.arch }}.zip build/macos-unpacked
+          app="build/macos-unpacked/am32-sitl-gui-macos-${{ matrix.arch }}/am32-sitl-gui.app"
+          codesign --verify --deep --strict "$app"
+          python3 SITL/windows_package_test.py --exe "$app"
+          python3 SITL/multi_esc_gui_test.py
+          python3 -m unittest discover -s SITL -t SITL -p 'test_*.py' -v
+
+      # Keep the ZIP intact: artifact upload would discard Unix modes and
+      # framework symlinks if it were given the unpacked .app directory.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: am32-sitl-gui-macos-${{ matrix.arch }}
+          path: dist/am32-sitl-gui-macos-${{ matrix.arch }}.zip
+          if-no-files-found: error
 
   # Windows is built under Cygwin rather than cross-compiled: the package
   # ships the firmware, the bootloader, the USB/IP installer and the

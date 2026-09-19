@@ -46,11 +46,10 @@ jobs:
         run: |
           choco install innosetup --no-progress -y
           python scripts\build-windows-installer.py --iscc 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+      - name: Archive application and installer
+        run: python scripts/archive-package.py
       - uses: actions/upload-artifact@v4
         with:
           name: ESCSim-${{ runner.os }}-${{ runner.arch }}
-          path: |
-            dist/ESCSim/
-            dist/ESCSim.app/
-            dist/installer/ESCSim-installer.exe
+          path: dist/release/
           if-no-files-found: error

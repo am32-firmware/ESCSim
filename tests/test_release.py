@@ -106,6 +106,8 @@ def make_zip(path, entries):
     with zipfile.ZipFile(path, "w") as archive:
         for name, data, mode in entries:
             info = zipfile.ZipInfo(name)
+            # Preserve malformed names verbatim, including on Windows.
+            info.filename = name
             info.create_system = 3
             info.external_attr = mode << 16
             archive.writestr(info, data)
@@ -158,10 +160,12 @@ def test_rejects_legacy_incomplete_packages(tmp_path, name):
 
 
 @pytest.mark.parametrize(
-    "member", ["../escape", "/absolute", "C:/drive", "back\\slash"]
+    "member", ["../escape", "/absolute", "C:/drive", "back\\slash", "nul\x00suffix"]
 )
 def test_unsafe_archive_paths_rejected(tmp_path, member):
     outer = make_zip(tmp_path / "artifact.zip", [(member, b"data", 0o100644)])
+    with zipfile.ZipFile(outer) as archive:
+        assert archive.infolist()[0].orig_filename == member
     with pytest.raises(release.ReleaseError, match="unsafe"):
         release.materialize(artifact("am32-capture-linux"), outer, tmp_path)
 

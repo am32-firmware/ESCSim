@@ -190,17 +190,21 @@ def zip_members(archive):
     members = archive.infolist()
     seen = set()
     for info in members:
-        path = PurePosixPath(info.filename)
+        # ZipInfo normalizes separators on Windows and truncates at NUL.
+        # Validate the original name so malformed entries cannot be hidden.
+        name = info.orig_filename
+        path = PurePosixPath(name)
         if (
             path.is_absolute()
             or ".." in path.parts
-            or "\\" in info.filename
+            or "\\" in name
+            or name != info.filename
             or not path.parts
             or ":" in path.parts[0]
-            or info.filename in seen
+            or name in seen
         ):
-            raise ReleaseError(f"unsafe or duplicate archive member: {info.filename!r}")
-        seen.add(info.filename)
+            raise ReleaseError(f"unsafe or duplicate archive member: {name!r}")
+        seen.add(name)
     return members
 
 

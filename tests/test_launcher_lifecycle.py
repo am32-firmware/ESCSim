@@ -469,3 +469,45 @@ def test_fc_dfu_requires_usb_configurator(tmp_path, monkeypatch):
     lab.conf = "off"
 
     assert lab.start() == "flight-controller DFU mode requires USB"
+
+
+def test_sleep_resume_updates_owned_port_and_stop_detaches_new_port(monkeypatch):
+    lab = make_lab()
+    ports = {9}  # Unrelated application.
+    allocations = iter((0, 2))
+
+    def attach(**kwargs):
+        port = next(allocations)
+        ports.add(port)
+        return port
+
+    def detach(port):
+        ports.remove(port)
+        return True
+
+    monkeypatch.setattr(gui.sitl_usbip, "attach", attach)
+    monkeypatch.setattr(gui.sitl_usbip, "detach", detach)
+    monkeypatch.setattr(gui.sitl_usbip, "port_attached", lambda port: port in ports)
+    lab._remember_usb(lab.usb.attach(unix_path="@test"))
+    lab.usb.prepare()
+    assert ports == {9}
+    lab.usb.resume()
+    assert lab.usb_ports == {2}
+    assert lab.usb_port == 2
+    assert lab._stop_stub() is None
+    assert ports == {9}
+    assert not lab.usb.imports
+
+
+def test_firmware_disconnect_forgets_sleep_lease_before_port_reuse(monkeypatch):
+    lab = make_lab()
+    monkeypatch.setattr(gui.sitl_usbip, "attach", lambda **kwargs: 0)
+    lab._remember_usb(lab.usb.attach(unix_path="@test"))
+    lab._forget_usb(0)
+    detached = []
+    monkeypatch.setattr(gui.sitl_usbip, "detach", lambda port: detached.append(port))
+    monkeypatch.setattr(gui.sitl_usbip, "port_attached", lambda port: True)
+    lab.usb.prepare()
+    lab.usb.resume()
+    assert not detached
+    assert not lab.usb_ports

@@ -73,6 +73,12 @@ published images.
 - Linux virtual USB uses `vhci_hcd`; run the explicit USB/IP rule installer
   only if browser access is needed and the documented local privilege tradeoff
   is acceptable.
+  On Linux, both GUIs detach their own virtual USB devices before system sleep
+  and reconnect them after resume. The simulation stays loaded; reopen the
+  configurator's serial connection afterwards. This uses logind's sleep
+  notifications and a delay inhibitor because Linux's `vhci_hcd` refuses
+  suspend while any imported device remains connected. Other applications'
+  USB/IP devices are left alone and can still prevent suspend.
 - Windows virtual USB is opt-in. The interactive installer offers the bundled,
   SHA-256-verified usbip-win2 0.9.7.7 client when it is missing and warns before
   starting its elevated driver setup.

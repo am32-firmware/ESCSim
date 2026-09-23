@@ -80,6 +80,7 @@ def main():
     sep = ';' if sys.platform.startswith('win') else ':'
     cmd = [sys.executable, '-m', 'PyInstaller', '--noconfirm', '--clean',
            '--name', args.name, '--windowed', '--paths', HERE,
+           '--paths', os.path.join(ROOT, 'src'),
            '--distpath', os.path.join(ROOT, 'dist'),
            '--workpath', os.path.join(ROOT, 'build', 'pyinstaller-sitl'),
            '--specpath', os.path.join(ROOT, 'build')]

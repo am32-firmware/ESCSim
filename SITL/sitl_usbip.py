@@ -791,7 +791,7 @@ def attach(unix_path=None, host='127.0.0.1', port=3240, busid=BUSID):
     """
     if IS_WINDOWS:
         return _windows_attach(host, port, busid)
-    if os.geteuid() != 0:
+    if os.geteuid() != 0 and not os.access(os.path.join(VHCI, 'attach'), os.W_OK):
         cmd = privilege_prefix() + [
             sys.executable, os.path.abspath(__file__), '--attach-to',
             unix_path if unix_path is not None else '%s:%u' % (host, port)]
@@ -810,11 +810,28 @@ def attach(unix_path=None, host='127.0.0.1', port=3240, busid=BUSID):
     return vhci_port
 
 
+def port_attached(port):
+    """Test one owned VHCI port; used to await completion of sleep detach."""
+    if IS_WINDOWS:
+        return True
+    if port is None or isinstance(port, bool):
+        return False
+    try:
+        with open(os.path.join(VHCI, 'status')) as status:
+            for line in status.read().splitlines()[1:]:
+                fields = line.split()
+                if len(fields) >= 3 and int(fields[1]) == port:
+                    return fields[2] != VDEV_ST_NULL
+    except OSError:
+        pass
+    return False
+
+
 def detach(port=None):
     """detach one vhci port, or every port that has a device on it"""
     if IS_WINDOWS:
         return _windows_detach(port)
-    if os.geteuid() != 0:
+    if os.geteuid() != 0 and not os.access(os.path.join(VHCI, 'detach'), os.W_OK):
         cmd = privilege_prefix() + [sys.executable, os.path.abspath(__file__),
                                     '--detach']
         if port is not None:

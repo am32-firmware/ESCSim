@@ -61,6 +61,7 @@ from escsim.control import msp_stub_fc
 from escsim.control import dfu as sitl_dfu
 from escsim.control import ui as sitl_gui
 from escsim.control import usbip as sitl_usbip
+from escsim.control.usb_sleep import UsbSleep, watch_system_sleep
 from escsim.control.backend import CanCommandGroup
 from escsim.artifacts.catalog import ArtifactRepository
 from escsim.renode import download as renode_download
@@ -327,6 +328,7 @@ class Lab(object):
         self.lifecycle_lock = threading.RLock()
         self.usb_cleanup_lock = threading.Lock()
         self.usb_starting = set()
+        self.usb = UsbSleep(sitl_usbip, self._usb_reconnected, self.log)
         self.target = None
         self.info = None  # {'family','pin','dronecan'}
         self.bootloader = "auto"  # auto | none | path
@@ -1043,7 +1045,7 @@ class Lab(object):
                     verbose=False,
                 )
             if self.conf == "usb":
-                attached = sitl_usbip.attach(
+                attached = self.usb.attach(
                     unix_path=endpoint.unix_path,
                     host=endpoint.host,
                     port=endpoint.port,
@@ -1106,7 +1108,7 @@ class Lab(object):
                         else "@escsim-fc-dfu.%u.%u" % (os.getuid(), os.getpid())
                     ),
                 )
-                attached = sitl_usbip.attach(
+                attached = self.usb.attach(
                     unix_path=endpoint.unix_path,
                     host=endpoint.host,
                     port=endpoint.port,
@@ -1144,7 +1146,7 @@ class Lab(object):
                 return
             raise RuntimeError("FC firmware did not enable USB")
         previous_ttys = sitl_usbip.serial_devices()
-        attached = sitl_usbip.attach(
+        attached = self.usb.attach(
             host="127.0.0.1",
             port=self.fc_usbip_port(),
             busid="1-0",
@@ -1216,47 +1218,53 @@ class Lab(object):
         """
         observed_state = None
         while self._generation_current(generation) and self.fc_runner.running():
+            if self.usb.sleeping.is_set():
+                time.sleep(0.1)
+                continue
+            # Monitor I/O can take seconds; never hold the USB lock over it.
             state = self._fc_usb_connection_state()
             if state is None:
                 time.sleep(0.5)
                 continue
-            with self.lifecycle_lock:
-                ports = list(self.usb_ports)
-            changed = observed_state is not None and state != observed_state
-            observed_state = state
-            if (
-                ports
-                and not changed
-                and any(sitl_usbip.port_attached(port) for port in ports)
-            ):
-                time.sleep(0.5)
-                continue
-            for port in ports:
-                if os.name == "nt":
-                    try:
-                        sitl_usbip.detach(port)
-                    except (OSError, RuntimeError):
-                        pass
-                self._forget_usb(port)
-            if (state & 1) == 0:
-                time.sleep(0.5)
-                continue
-            previous_ttys = sitl_usbip.serial_devices()
-            try:
-                attached = sitl_usbip.attach(
-                    host="127.0.0.1",
-                    port=self.fc_usbip_port(),
-                    busid="1-0",
-                )
-                if attached is None or attached is False:
-                    raise RuntimeError("FC USB/IP reattach was refused")
-            except (OSError, RuntimeError):
-                time.sleep(0.5)
-                continue
-            self._remember_usb(attached)
-            if not self._generation_current(generation):
-                self._detach_owned_usb(attached)
-                return
+            time.sleep(0.1)
+            with self.usb.lock:
+                if self.usb.sleeping.is_set():
+                    continue
+                with self.lifecycle_lock:
+                    ports = list(self.usb_ports)
+                changed = observed_state is not None and state != observed_state
+                observed_state = state
+                if (
+                    ports
+                    and not changed
+                    and any(self.usb.port_attached(port) for port in ports)
+                ):
+                    continue
+                cleanup_failed = False
+                for port in ports:
+                    error = self._detach_owned_usb(port)
+                    if error is not None:
+                        self.log("USB/IP detach before reconnect failed: %s" % error)
+                        cleanup_failed = True
+                if cleanup_failed:
+                    continue
+                if (state & 1) == 0:
+                    continue
+                previous_ttys = sitl_usbip.serial_devices()
+                try:
+                    attached = self.usb.attach(
+                        host="127.0.0.1",
+                        port=self.fc_usbip_port(),
+                        busid="1-0",
+                    )
+                    if attached is None or attached is False:
+                        raise RuntimeError("FC USB/IP reattach was refused")
+                except (OSError, RuntimeError):
+                    continue
+                self._remember_usb(attached)
+                if not self._generation_current(generation):
+                    self._detach_owned_usb(attached)
+                    return
             tty = self._find_fc_tty(
                 timeout=5, usb_port=attached, previous_ttys=previous_ttys
             )
@@ -1355,6 +1363,19 @@ class Lab(object):
             with self.lifecycle_lock:
                 self.usb_starting.discard(startup_token)
 
+    def _usb_reconnected(self, old_port, new_port):
+        with self.lifecycle_lock:
+            self.usb_ports.discard(old_port)
+            if new_port is not None:
+                self.usb_ports.add(new_port)
+            self.usb_attached = bool(self.usb_ports)
+            self.usb_port = next(iter(self.usb_ports), None)
+            self.status = (
+                "USB reconnected after sleep; reopen the configurator connection"
+                if new_port is not None
+                else "USB reconnect failed after sleep"
+            )
+
     def _remember_usb(self, port):
         with self.lifecycle_lock:
             self.usb_ports.add(port)
@@ -1362,24 +1383,25 @@ class Lab(object):
             self.usb_port = port
 
     def _forget_usb(self, port):
-        with self.lifecycle_lock:
+        with self.usb.lock, self.lifecycle_lock:
+            self.usb.forget(port)
             self.usb_ports.discard(port)
             self.usb_attached = bool(self.usb_ports)
             self.usb_port = next(iter(self.usb_ports), None)
 
     def _detach_owned_usb(self, port):
-        with self.usb_cleanup_lock:
+        with self.usb.lock, self.usb_cleanup_lock:
             with self.lifecycle_lock:
                 if port not in self.usb_ports:
                     return None
             # Firmware can disconnect itself before the launcher gets here
             # (DFU manifestation and bootloader/application reboots do this).
             # Treat an already-empty exact VHCI slot as successfully detached.
-            if not sitl_usbip.port_attached(port):
+            if not self.usb.port_attached(port):
                 self._forget_usb(port)
                 return None
             try:
-                if not sitl_usbip.detach(port):
+                if not self.usb.detach(port):
                     raise RuntimeError("detach was refused")
             except Exception as error:
                 return error
@@ -1390,13 +1412,19 @@ class Lab(object):
         with self.lifecycle_lock:
             stub = self.stub
             self.stub = None
-            usb_ports = list(self.usb_ports)
+            has_ports = bool(self.usb_ports)
         cleanup_error = None
-        for usb_port in usb_ports:
-            error = self._detach_owned_usb(usb_port)
-            if error is not None:
-                self.log("USB/IP detach failed: %s" % error)
-                cleanup_error = error
+        # Do not wait for a startup that has not published any port yet.
+        # Its generation check will detach it when the attach completes.
+        if has_ports:
+            with self.usb.lock:
+                with self.lifecycle_lock:
+                    usb_ports = list(self.usb_ports)
+                for usb_port in usb_ports:
+                    error = self._detach_owned_usb(usb_port)
+                    if error is not None:
+                        self.log("USB/IP detach failed: %s" % error)
+                        cleanup_error = error
         if stub is not None:
             stub.close()
         return cleanup_error
@@ -1571,6 +1599,7 @@ def main(argv=None):
     icon_pixmap.loadFromData(icon_data.read_bytes(), "PNG")
     app.setWindowIcon(QIcon(icon_pixmap))
     lab = Lab(args)
+    sleep_watcher = watch_system_sleep(app, lab.usb)
     settings_store = SettingsStore()
     preferences = settings_store.load().launcher
     lab.bootloader = preferences.bootloader
@@ -2722,6 +2751,8 @@ def main(argv=None):
     try:
         app.exec()
     finally:
+        if sleep_watcher is not None:
+            sleep_watcher.close()
         save_preferences()
         for cleanup in control_cleanups:
             if cleanup is not None:

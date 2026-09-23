@@ -788,6 +788,8 @@ def main():
     app = QApplication(sys.argv)
     app.setStyle('Fusion')
     fleet = EscFleet(args, app)
+    from escsim.control.usb_sleep import watch_system_sleep
+    sleep_watcher = watch_system_sleep(app, fleet.panels[0].usb_sleep)
     signal.signal(signal.SIGINT, lambda *a: app.quit())
     signal.signal(signal.SIGTERM, lambda *a: app.quit())
     from sitl_layout import fit_window
@@ -796,6 +798,8 @@ def main():
     try:
         app.exec()
     finally:
+        if sleep_watcher is not None:
+            sleep_watcher.close()
         fleet.close()
 
 
@@ -2467,6 +2471,19 @@ def create_esc_panel(args, app, fleet, esc_index):
     # runs off the UI thread and reports back through a queue
     usb = {'stub': None, 'attached': False, 'port': None, 'worker': None,
            'q': queue.Queue()}
+    # Share sleep handling with the Renode GUI, including standalone checkout runs.
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), 'src'))
+    from escsim.control.usb_sleep import UsbSleep
+    import sitl_usbip
+
+    def usb_reconnected(old_port, new_port):
+        usb['port'] = new_port
+        usb['attached'] = new_port is not None
+        usb['q'].put(('resume', 'USB reconnected; reopen the configurator connection'
+                     if new_port is not None else 'USB reconnect after sleep failed'))
+
+    usb_sleep = UsbSleep(sitl_usbip, usb_reconnected,
+                         lambda message: usb['q'].put(('sleep', message)))
     usb_serial = 'SITL' if args.port == 57733 else 'SITL-%u' % args.port
 
     def usb_start(mode):
@@ -2510,7 +2527,7 @@ def create_esc_panel(args, app, fleet, esc_index):
             endpoint.close()
             raise
         usb['stub'] = stub
-        vhci_port = sitl_usbip.attach(unix_path=endpoint.unix_path,
+        vhci_port = usb_sleep.attach(unix_path=endpoint.unix_path,
                                      host=endpoint.host, port=endpoint.port)
         if vhci_port is False:
             raise RuntimeError('attach refused (is vhci_hcd loaded?)')
@@ -2526,15 +2543,17 @@ def create_esc_panel(args, app, fleet, esc_index):
         worker = usb['worker']
         if worker is not None and worker is not threading.current_thread():
             worker.join()
-        # Detach while the exporter still exists. With usbip-win2 --once,
-        # closing it first removes the device and makes detach fail.
-        if usb['attached']:
-            sitl_usbip.detach(usb['port'])
-            usb['attached'] = False
-        usb['port'] = None
-        if usb['stub'] is not None:
-            usb['stub'].close()
-            usb['stub'] = None
+        with usb_sleep.lock:
+            # Detach while the exporter still exists. With usbip-win2 --once,
+            # closing it first removes the device and makes detach fail.
+            if usb['attached']:
+                if not usb_sleep.detach(usb['port']):
+                    raise RuntimeError('USB detach was refused')
+                usb['attached'] = False
+            usb['port'] = None
+            if usb['stub'] is not None:
+                usb['stub'].close()
+                usb['stub'] = None
 
     def set_usb_ownership(mode):
         ds_enable.setEnabled(mode == USB_OFF)
@@ -2597,6 +2616,9 @@ def create_esc_panel(args, app, fleet, esc_index):
         try:
             kind, detail = usb['q'].get_nowait()
         except queue.Empty:
+            return
+        if kind in ('sleep', 'resume'):
+            usb_status.setText(detail)
             return
         if kind == 'reboot':
             # Let the MSP acknowledgement reach the host, then emulate
@@ -3152,6 +3174,7 @@ def create_esc_panel(args, app, fleet, esc_index):
         widget=win, args=args, runner=runner, close=cleanup,
         command=handle_command, set_usb_ownership=set_usb_ownership,
         usb_mode=usb_mode, usb_status=usb_status, usb_stop=usb_stop,
+        usb_sleep=usb_sleep,
         binary=sim_bin_edit, eeprom=sim_ee_edit, bootloader=sim_bl_edit,
         input_mode=sim_input, accurate=sim_accurate, verbose=sim_verbose,
         start=sim_launch, stop=sim_halt,

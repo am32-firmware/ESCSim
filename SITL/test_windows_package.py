@@ -24,12 +24,27 @@ class WindowsPackageTests(unittest.TestCase):
     @unittest.skipUnless(hasattr(os, 'geteuid'), 'Linux privilege helper')
     def test_linux_attach_retains_owned_port(self):
         result = Mock(returncode=0, stdout='3\n')
-        with patch.object(usb, 'IS_WINDOWS', False), patch.object(os, 'geteuid', return_value=1000), patch.object(usb, 'privilege_prefix', return_value=['sudo']), patch.object(usb.subprocess, 'run', return_value=result):
+        with patch.object(usb, 'IS_WINDOWS', False), patch.object(os, 'geteuid', return_value=1000), patch.object(os, 'access', return_value=False), patch.object(usb, 'privilege_prefix', return_value=['sudo']), patch.object(usb.subprocess, 'run', return_value=result):
             self.assertEqual(usb.attach(port=3299), 3)
             result.stdout = '0\n'
             self.assertIs(type(usb.attach(port=3299)), int)
             result.returncode = 1
             self.assertIs(usb.attach(port=3299), False)
+
+    def test_linux_udev_permissions_avoid_privilege_helpers(self):
+        sock = Mock()
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch.object(usb, 'IS_WINDOWS', False), \
+                patch.object(usb, 'VHCI', tmp), \
+                patch.object(os, 'geteuid', return_value=1000, create=True), \
+                patch.object(os, 'access', return_value=True), \
+                patch.object(usb, 'import_device', return_value=(sock, 1, 2)), \
+                patch.object(usb, 'attach_socket', return_value=0), \
+                patch.object(usb, 'privilege_prefix') as helper:
+            self.assertEqual(usb.attach(unix_path='@test'), 0)
+            self.assertTrue(usb.detach(0))
+            self.assertEqual((Path(tmp) / 'detach').read_text(), '0')
+            helper.assert_not_called()
 
     def test_usb_identity_matches_enumeration_and_device_list(self):
         # All identities must coexist without changing another exporter's

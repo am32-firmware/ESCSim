@@ -276,8 +276,14 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
                 {
                     n = sock.ReceiveFrom(buf, ref from);
                 }
-                catch(SocketException)
+                catch(SocketException e)
                 {
+                    // Windows reports ICMP from a departed UDP client on
+                    // the next receive. Keep serving replacement clients.
+                    if(e.SocketErrorCode == SocketError.ConnectionReset)
+                    {
+                        continue;
+                    }
                     return;
                 }
                 catch(ObjectDisposedException)
@@ -839,8 +845,14 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
                 {
                     n = sock.ReceiveFrom(buf, ref from);
                 }
-                catch(SocketException)
+                catch(SocketException e)
                 {
+                    // A closed telemetry subscriber must not stop the
+                    // state listener when Windows delivers its ICMP reset.
+                    if(e.SocketErrorCode == SocketError.ConnectionReset)
+                    {
+                        continue;
+                    }
                     return;
                 }
                 catch(ObjectDisposedException)

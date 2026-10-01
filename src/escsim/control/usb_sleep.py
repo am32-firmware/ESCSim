@@ -10,6 +10,18 @@ import threading
 import time
 
 
+class UsbAttachment:
+    """Stable identity for an import whose host port can change on resume.
+
+    Read port under UsbSleep.lock when it must remain valid across an operation.
+    """
+
+    def __init__(self, port, kwargs):
+        self.port = port
+        self.kwargs = kwargs
+        self.attached = True
+
+
 class UsbSleep:
     def __init__(self, usbip, reconnected, log=print):
         self.usbip = usbip
@@ -19,53 +31,68 @@ class UsbSleep:
         self.condition = threading.Condition(self.lock)
         self.sleeping = threading.Event()
         self.closed = False
-        self.imports = {}
+        self.imports = set()
 
-    def attach(self, **kwargs):
+    def attach(self, *, cancel=None, **kwargs):
         with self.condition:
             while self.sleeping.is_set() and not self.closed:
-                self.condition.wait()
+                if cancel is not None and cancel.is_set():
+                    raise RuntimeError("USB attach cancelled")
+                # Stop can run on the Qt thread which also receives Resume.
+                # Cancellation must not depend on that thread processing events.
+                self.condition.wait(timeout=0.05 if cancel is not None else None)
             if self.closed:
                 raise RuntimeError("USB sleep handler is closed")
+            if cancel is not None and cancel.is_set():
+                raise RuntimeError("USB attach cancelled")
             port = self.usbip.attach(**kwargs)
-            if port is not None and port is not False:
-                self.imports[port] = (kwargs, True)
-            return port
+            if port is None or isinstance(port, bool):
+                raise RuntimeError(
+                    "USB attach refused or did not report its owned port"
+                )
+            attachment = UsbAttachment(port, kwargs)
+            self.imports.add(attachment)
+            return attachment
 
-    def port_attached(self, port):
+    def port_attached(self, attachment):
         with self.lock:
+            if attachment not in self.imports:
+                return False
             # A suspended lease still belongs to us, so Stop must forget it.
-            if port in self.imports and not self.imports[port][1]:
-                return True
-            return self.usbip.port_attached(port)
+            return not attachment.attached or self.usbip.port_attached(attachment.port)
 
-    def detach(self, port):
-        if port is None or isinstance(port, bool):
-            raise RuntimeError("USB detach requires an owned port")
+    def detach(self, attachment):
+        if not isinstance(attachment, UsbAttachment):
+            raise RuntimeError("USB detach requires an owned attachment")
         with self.lock:
-            entry = self.imports.get(port)
-            if entry is not None and not entry[1]:
-                del self.imports[port]
+            if attachment not in self.imports:
                 return True
-            result = self.usbip.detach(port)
+            if not attachment.attached or not self.usbip.port_attached(attachment.port):
+                self.forget(attachment)
+                return True
+            result = self.usbip.detach(attachment.port)
             if result:
-                self.imports.pop(port, None)
+                self.forget(attachment)
             return result
 
-    def forget(self, port):
+    def forget(self, attachment):
         """Drop a lease after a firmware-initiated disconnect."""
         with self.lock:
-            self.imports.pop(port, None)
+            if attachment in self.imports:
+                self.imports.remove(attachment)
+                attachment.port = None
+                attachment.attached = False
 
     def prepare(self):
         # Set this before waiting for any in-flight attach or reconnect.
         self.sleeping.set()
         with self.lock:
-            for port, (kwargs, attached) in list(self.imports.items()):
-                if not attached:
+            for attachment in list(self.imports):
+                if not attachment.attached:
                     continue
+                port = attachment.port
                 if not self.usbip.port_attached(port):
-                    self.imports.pop(port)
+                    self.forget(attachment)
                     continue
                 if not self.usbip.detach(port):
                     raise RuntimeError(f"USB detach refused on port {port}")
@@ -74,7 +101,8 @@ class UsbSleep:
                     if time.monotonic() >= deadline:
                         raise RuntimeError(f"USB port {port} did not disconnect")
                     time.sleep(0.02)
-                self.imports[port] = (kwargs, False)
+                attachment.attached = False
+                attachment.port = None
             self.log("USB detached for system sleep")
 
     def resume(self):
@@ -82,23 +110,21 @@ class UsbSleep:
             try:
                 if self.closed:
                     return
-                # Remove all old keys first: another process can occupy our
-                # former ports, and new imports may reuse another old key.
-                pending = [(p, k) for p, (k, a) in self.imports.items() if not a]
-                for port, _ in pending:
-                    del self.imports[port]
+                pending = [a for a in self.imports if not a.attached]
                 failures = 0
-                for old_port, kwargs in pending:
+                for attachment in pending:
                     try:
-                        port = self.usbip.attach(**kwargs)
-                        if port is None or port is False:
+                        port = self.usbip.attach(**attachment.kwargs)
+                        if port is None or isinstance(port, bool):
                             raise RuntimeError("USB attach refused")
-                        self.imports[port] = (kwargs, True)
-                        self.reconnected(old_port, port)
                     except Exception as error:
                         failures += 1
-                        self.reconnected(old_port, None)
+                        self.forget(attachment)
                         self.log(f"USB reconnect after sleep failed: {error}")
+                    else:
+                        attachment.port = port
+                        attachment.attached = True
+                    self.reconnected(attachment)
                 if pending and not failures:
                     self.log("USB resume complete; reopen the configurator connection")
             finally:
@@ -122,7 +148,11 @@ def watch_system_sleep(owner, usb):
     try:
         from PySide6.QtDBus import QDBusConnection, QDBusInterface, QDBusMessage
     except ImportError as error:
-        usb.log(f"USB sleep protection unavailable: {error}")
+        usb.log(
+            f"USB sleep protection unavailable: {error}. "
+            "Virtual USB may prevent suspend. On Debian/Ubuntu install "
+            "python3-pyside6.qtdbus and restart ESCSim, or use the GUI venv."
+        )
         return None
 
     class Watcher(QObject):

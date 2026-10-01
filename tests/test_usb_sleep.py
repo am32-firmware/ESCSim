@@ -40,23 +40,25 @@ def session():
 
 def test_sleep_detaches_only_owned_ports_and_resume_updates_port():
     host, usb, reconnected = session()
-    assert usb.attach(unix_path="@our-device", busid="1-1") == 0
+    attachment = usb.attach(unix_path="@our-device", busid="1-1")
+    assert attachment.port == 0
     usb.prepare()
     assert host.ports == {7}
-    assert usb.port_attached(0)  # Stop still owns the suspended lease.
+    assert usb.port_attached(attachment)  # Stop still owns the suspended lease.
     usb.resume()
-    reconnected.assert_called_once_with(0, 1)
+    reconnected.assert_called_once_with(attachment)
+    assert attachment.port == 1
     assert host.ports == {1, 7}
     assert host.attach_calls == [{"unix_path": "@our-device", "busid": "1-1"}] * 2
-    assert usb.detach(1)
+    assert usb.detach(attachment)
     assert host.ports == {7}
 
 
 def test_stop_while_asleep_cancels_reconnect():
     host, usb, reconnected = session()
-    usb.attach(host="localhost", port=3240)
+    attachment = usb.attach(host="localhost", port=3240)
     usb.prepare()
-    assert usb.detach(0)
+    assert usb.detach(attachment)
     usb.resume()
     assert host.ports == {7}
     assert len(host.attach_calls) == 1
@@ -65,12 +67,14 @@ def test_stop_while_asleep_cancels_reconnect():
 
 def test_failed_resume_forgets_old_port_without_detaching_its_new_owner():
     host, usb, reconnected = session()
-    usb.attach(host="localhost", busid="1-0")
+    attachment = usb.attach(host="localhost", busid="1-0")
     usb.prepare()
     host.ports.add(0)  # Another instance acquired the former port.
     host.attach = Mock(side_effect=OSError("exporter unavailable"))
     usb.resume()
-    reconnected.assert_called_once_with(0, None)
+    reconnected.assert_called_once_with(attachment)
+    assert attachment.port is None
+    assert usb.detach(attachment)  # Never touch its former port.
     assert host.ports == {0, 7}
     assert not usb.imports
     assert not usb.sleeping.is_set()
@@ -139,10 +143,11 @@ def test_start_during_sleep_waits_until_resume():
     usb.prepare()
     entered = threading.Event()
     attached = threading.Event()
+    attachments = []
 
     def start():
         entered.set()
-        usb.attach(unix_path="@test")
+        attachments.append(usb.attach(unix_path="@test"))
         attached.set()
 
     worker = threading.Thread(target=start)
@@ -152,7 +157,7 @@ def test_start_during_sleep_waits_until_resume():
     usb.resume()
     worker.join(2)
     assert attached.is_set()
-    usb.detach(0)
+    usb.detach(attachments[0])
 
 
 def test_prepare_waits_for_kernel_disconnect(monkeypatch):
@@ -178,7 +183,7 @@ def test_kernel_disconnect_timeout_is_reported(monkeypatch):
 
 def test_no_blanket_detach():
     _, usb, _ = session()
-    with pytest.raises(RuntimeError, match="owned port"):
+    with pytest.raises(RuntimeError, match="owned attachment"):
         usb.detach(None)
 
 
@@ -218,7 +223,7 @@ def test_logind_delay_is_released_after_detach_and_reacquired_on_resume(monkeypa
     monkeypatch.setattr(qt.QDBusConnection, "systemBus", lambda: bus)
     monkeypatch.setattr(qt, "QDBusInterface", Interface)
     host, usb, restored = session()
-    usb.attach(unix_path="@test")
+    attachment = usb.attach(unix_path="@test")
     watcher = watch_system_sleep(app, usb)
 
     def wait(predicate):
@@ -253,7 +258,8 @@ def test_logind_delay_is_released_after_detach_and_reacquired_on_resume(monkeypa
         wait(lambda: watcher.worker is None)
         assert watcher.fd.isValid()
         assert len(calls) == 2
-        restored.assert_called_once_with(0, 1)
+        restored.assert_called_once_with(attachment)
+        assert attachment.port == 1
 
         # Resume/cancel can arrive before the worker's completion signal.
         watcher.prepare(True)
@@ -268,3 +274,64 @@ def test_logind_delay_is_released_after_detach_and_reacquired_on_resume(monkeypa
         os.close(write_fd)
     assert watcher.fd is None
     bus.disconnect.assert_called_once()
+
+
+def test_cancel_attach_during_sleep_without_resume():
+    host, usb, _ = session()
+    usb.prepare()
+    cancel = threading.Event()
+    entered = threading.Event()
+    errors = []
+
+    def start():
+        entered.set()
+        try:
+            usb.attach(cancel=cancel, unix_path="@test")
+        except RuntimeError as error:
+            errors.append(str(error))
+
+    worker = threading.Thread(target=start)
+    worker.start()
+    try:
+        assert entered.wait(2)
+        cancel.set()
+        worker.join(2)
+        assert not worker.is_alive()
+        assert errors == ["USB attach cancelled"]
+        assert usb.sleeping.is_set()
+        assert not host.attach_calls
+    finally:
+        usb.close()
+        worker.join(2)
+
+
+def test_returned_attachment_survives_resume_before_caller_publishes_it():
+    host, usb, _ = session()
+    attachment = usb.attach(unix_path="@test")
+    usb.prepare()
+    host.ports.add(0)  # Another application's import now occupies this slot.
+    usb.resume()
+    assert attachment.port == 1
+    assert usb.detach(attachment)
+    assert host.ports == {0, 7}
+    # Repeated/stale cleanup is harmless even after reuse of the resumed port.
+    host.ports.add(1)
+    assert usb.detach(attachment)
+    assert host.ports == {0, 1, 7}
+    assert host.detach_calls == [0, 1]
+
+
+def test_missing_qtdbus_reports_suspend_dependency(monkeypatch):
+    import sys
+
+    pytest.importorskip("PySide6.QtCore")
+    from escsim.control.usb_sleep import watch_system_sleep
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setitem(sys.modules, "PySide6.QtDBus", None)
+    _, usb, _ = session()
+    assert watch_system_sleep(None, usb) is None
+    message = usb.log.call_args.args[0]
+    assert "Virtual USB may prevent suspend" in message
+    assert "python3-pyside6.qtdbus" in message
+    assert "restart ESCSim" in message

@@ -79,6 +79,11 @@ published images.
   notifications and a delay inhibitor because Linux's `vhci_hcd` refuses
   suspend while any imported device remains connected. Other applications'
   USB/IP devices are left alone and can still prevent suspend.
+  When running from source with Debian/Ubuntu's system Python, install
+  `python3-pyside6.qtdbus` (included by `SITL/install_linux.sh`) and restart
+  the GUI. Without this module the sleep handler cannot run, and connected
+  virtual USB devices prevent suspend. The packaged GUI and pip-installed
+  PySide6 include the module.
 - Windows virtual USB is opt-in. The interactive installer offers the bundled,
   SHA-256-verified usbip-win2 0.9.7.7 client when it is missing and warns before
   starting its elevated driver setup.

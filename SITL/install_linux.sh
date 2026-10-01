@@ -6,7 +6,8 @@
 #
 # The distro PySide6 is split into per-module packages; the GUI's live
 # scopes need QtOpenGLWidgets, which is easy to miss. This installs the
-# full set. For a self-contained setup instead, use the bundled venv:
+# full set, including QtDBus for detaching virtual USB before system sleep.
+# For a self-contained setup instead, use the bundled venv:
 #   python3 SITL/make_gui_env.py
 
 set -e
@@ -18,7 +19,7 @@ sudo apt-get install -y \
     python3-numpy python3-serial python3-pyqtgraph \
     python3-pyside6.qtcore python3-pyside6.qtgui python3-pyside6.qtwidgets \
     python3-pyside6.qtopengl python3-pyside6.qtopenglwidgets \
-    python3-pyside6.qtsvg python3-pyside6.qtmultimedia \
+    python3-pyside6.qtsvg python3-pyside6.qtmultimedia python3-pyside6.qtdbus \
     libgl1 libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3 libxcb-cursor0 \
     libvdpau-va-gl1
 

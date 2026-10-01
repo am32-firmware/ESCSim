@@ -584,6 +584,9 @@ class EscFleet:
         usb_bar.addWidget(QLabel('Direct ESC:'))
         usb_bar.addWidget(self.direct)
         usb_bar.addWidget(self.panels[0].usb_status, 1)
+        # before the stretch on the top row: that row is short, so this does
+        # not widen the window the way the USB row's combos would
+        bar.insertWidget(4, self.panels[0].usb_faults)
         self.count.valueChanged.connect(self.change_count)
         self.timer = QTimer(self.win)
         self.timer.timeout.connect(self.refresh)
@@ -760,7 +763,10 @@ class EscFleet:
     def close(self):
         self.timer.stop()
         # USB must release every wire before tearing down any ESC runner.
-        self.panels[0].usb_stop()
+        try:
+            self.panels[0].usb_stop()
+        except Exception as ex:
+            print('USB stop during shutdown failed: %s' % ex, file=sys.stderr)
         for panel in reversed(self.panels):
             panel.close()
         if self.logf is not None:
@@ -2469,24 +2475,50 @@ def create_esc_panel(args, app, fleet, esc_index):
     # fake FC for 4-way, or the 1-wire linker bridge for direct serial.
     # Bringing it up attaches to the kernel and waits for the tty, so it
     # runs off the UI thread and reports back through a queue
-    usb = {'stub': None, 'attached': False, 'port': None, 'worker': None,
-           'q': queue.Queue()}
+    usb = {'stub': None, 'attachment': None, 'cancel': threading.Event(),
+           'worker': None, 'q': queue.Queue()}
     # Share sleep handling with the Renode GUI, including standalone checkout runs.
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), 'src'))
     from escsim.control.usb_sleep import UsbSleep
     import sitl_usbip
 
-    def usb_reconnected(old_port, new_port):
-        usb['port'] = new_port
-        usb['attached'] = new_port is not None
+    def usb_reconnected(attachment):
         usb['q'].put(('resume', 'USB reconnected; reopen the configurator connection'
-                     if new_port is not None else 'USB reconnect after sleep failed'))
+                     if attachment.port is not None else 'USB reconnect after sleep failed'))
 
     usb_sleep = UsbSleep(sitl_usbip, usb_reconnected,
                          lambda message: usb['q'].put(('sleep', message)))
+    # deliberate link faults, shared by whichever stub is serving and
+    # mutated live from the dialog below
+    import sitl_faults
+    fault_dialog = {'win': None}
+    if esc_index:
+        # one bench, one link: the faults and their button belong to the
+        # panel that owns the USB device, the way the mode combo does
+        link_faults = fleet.panels[0].link_faults
+        usb_faults_btn = fleet.panels[0].usb_faults
+    else:
+        link_faults = sitl_faults.LinkFaults()
+        usb_faults_btn = QPushButton('Link faults...')
+    usb_faults_btn.setToolTip(
+        'Damage the link to a connected configurator on purpose: lose\n'
+        'frames, corrupt them, cut them short or answer late. Applies\n'
+        'to whichever USB mode is running, and can be changed while a\n'
+        'configurator is connected, including mid-flash.')
+
+    def show_faults():
+        if fault_dialog['win'] is None:
+            import sitl_fault_dialog
+            fault_dialog['win'] = sitl_fault_dialog.FaultDialog(
+                link_faults, usb_faults_btn.window())
+        fault_dialog['win'].show()
+        fault_dialog['win'].raise_()
+
+    if not esc_index:
+        usb_faults_btn.clicked.connect(show_faults)
     usb_serial = 'SITL' if args.port == 57733 else 'SITL-%u' % args.port
 
-    def usb_start(mode):
+    def usb_start(mode, cancel):
         import sitl_usbip
         targets = fleet.usb_targets(mode)
         first = targets[0]
@@ -2514,7 +2546,8 @@ def create_esc_panel(args, app, fleet, esc_index):
                     state_port=first.args.state_port, motor=mode == USB_BETAFLIGHT,
                     esc_ports=[panel.args.port for panel in targets],
                     state_ports=[panel.args.state_port for panel in targets],
-                    poles=args.poles, endpoint=endpoint,
+                    poles=args.poles,
+                    endpoint=sitl_faults.FaultyEndpoint(endpoint, link_faults),
                     config_path=(sim_ee_edit.text().strip() + '.fc.json')
                     if mode == USB_BETAFLIGHT and sim_ee_edit.text().strip() else None,
                     on_reboot=lambda fc: usb['q'].put(('reboot', fc)))
@@ -2522,38 +2555,43 @@ def create_esc_panel(args, app, fleet, esc_index):
                 import sitl_serial_bridge
                 stub = sitl_serial_bridge.SerialBridge(
                     sitl_host=first.args.host, sitl_port=first.args.port,
-                    state_port=first.args.state_port, endpoint=endpoint)
+                    state_port=first.args.state_port,
+                    endpoint=sitl_faults.FaultyEndpoint(endpoint, link_faults))
         except Exception:
             endpoint.close()
             raise
         usb['stub'] = stub
-        vhci_port = usb_sleep.attach(unix_path=endpoint.unix_path,
-                                     host=endpoint.host, port=endpoint.port)
-        if vhci_port is False:
-            raise RuntimeError('attach refused (is vhci_hcd loaded?)')
-        usb['attached'] = True
-        usb['port'] = None if vhci_port is True else vhci_port
+        usb['attachment'] = usb_sleep.attach(
+            cancel=cancel, unix_path=endpoint.unix_path,
+            host=endpoint.host, port=endpoint.port)
+        if cancel.is_set():
+            raise RuntimeError('USB attach cancelled')
         tty = sitl_usbip.find_tty(usb_serial, timeout=10, vid=vid, pid=pid)
         if tty is None:
             raise RuntimeError('attached but no tty appeared')
         return tty
 
     def usb_stop():
-        import sitl_usbip
         worker = usb['worker']
-        if worker is not None and worker is not threading.current_thread():
-            worker.join()
+        if worker is not threading.current_thread():
+            usb['cancel'].set()
+            if worker is not None:
+                worker.join()
+            usb['worker'] = None
         with usb_sleep.lock:
-            # Detach while the exporter still exists. With usbip-win2 --once,
-            # closing it first removes the device and makes detach fail.
-            if usb['attached']:
-                if not usb_sleep.detach(usb['port']):
-                    raise RuntimeError('USB detach was refused')
-                usb['attached'] = False
-            usb['port'] = None
-            if usb['stub'] is not None:
-                usb['stub'].close()
-                usb['stub'] = None
+            try:
+                # Detach while the exporter still exists. With usbip-win2
+                # --once, closing it first removes the device.
+                if usb['attachment'] is not None:
+                    if not usb_sleep.detach(usb['attachment']):
+                        raise RuntimeError('USB detach was refused')
+                    usb['attachment'] = None
+            finally:
+                # A failed detach must not leave a serving thread or prevent
+                # the ESC processes from being stopped during shutdown.
+                if usb['stub'] is not None:
+                    usb['stub'].close()
+                    usb['stub'] = None
 
     def set_usb_ownership(mode):
         ds_enable.setEnabled(mode == USB_OFF)
@@ -2575,6 +2613,7 @@ def create_esc_panel(args, app, fleet, esc_index):
         except Exception as ex:
             usb_status.setText('stop failed: %s' % ex)
             return
+        usb_mode.setEnabled(True)
         fleet.set_usb_ownership(mode)
         if mode == USB_OFF:
             usb_status.setText('off')
@@ -2600,15 +2639,20 @@ def create_esc_panel(args, app, fleet, esc_index):
         usb_mode.setEnabled(False)
         usb_status.setText('starting...')
 
+        cancel = threading.Event()
+        usb['cancel'] = cancel
+
         def go():
             try:
-                usb['q'].put(('ok', usb_start(mode)))
+                detail = usb_start(mode, cancel)
+                kind = 'ok'
             except Exception as ex:
                 try:
                     usb_stop()
-                except Exception:
-                    pass
-                usb['q'].put(('fail', str(ex)))
+                except Exception as cleanup_error:
+                    usb['q'].put(('sleep', 'USB cleanup failed: %s' % cleanup_error))
+                kind, detail = 'fail', str(ex)
+            usb['q'].put((kind, (cancel, detail)))
         usb['worker'] = threading.Thread(target=go, daemon=True)
         usb['worker'].start()
 
@@ -2628,6 +2672,9 @@ def create_esc_panel(args, app, fleet, esc_index):
                 if detail is usb['stub'] and usb_mode.currentIndex() == USB_BETAFLIGHT:
                     usb_changed()
             QTimer.singleShot(300, reconnect)
+            return
+        cancel, detail = detail
+        if cancel is not usb['cancel'] or cancel.is_set():
             return
         usb_mode.setEnabled(True)
         if kind == 'ok':
@@ -3154,8 +3201,10 @@ def create_esc_panel(args, app, fleet, esc_index):
         if phys_stream is not None:
             phys_stream.close()
         ds.close()
-        if usb['stub'] is not None:
+        try:
             usb_stop()
+        except Exception as ex:
+            print('USB stop during shutdown failed: %s' % ex, file=sys.stderr)
         runner.stop()
         sim.close()
         can_fps.close()
@@ -3166,6 +3215,9 @@ def create_esc_panel(args, app, fleet, esc_index):
             graph[0].close()
         if 'win' in rpm_graph:
             rpm_graph['win'].close()
+        if fault_dialog['win'] is not None:
+            fault_dialog['win'].timer.stop()
+            fault_dialog['win'].close()
         if can is not None:
             can.running = False
             can.thread.join(2.0)
@@ -3175,6 +3227,7 @@ def create_esc_panel(args, app, fleet, esc_index):
         command=handle_command, set_usb_ownership=set_usb_ownership,
         usb_mode=usb_mode, usb_status=usb_status, usb_stop=usb_stop,
         usb_sleep=usb_sleep,
+        usb_faults=usb_faults_btn, link_faults=link_faults,
         binary=sim_bin_edit, eeprom=sim_ee_edit, bootloader=sim_bl_edit,
         input_mode=sim_input, accurate=sim_accurate, verbose=sim_verbose,
         start=sim_launch, stop=sim_halt,

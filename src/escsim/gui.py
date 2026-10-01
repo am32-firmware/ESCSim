@@ -1155,7 +1155,7 @@ class Lab(object):
             raise RuntimeError("FC USB/IP attach was refused")
         self._remember_usb(attached)
         tty = self._find_fc_tty(
-            timeout=15, usb_port=attached, previous_ttys=previous_ttys
+            timeout=15, usb_port=attached.port, previous_ttys=previous_ttys
         )
         published = False
         with self.lifecycle_lock:
@@ -1266,7 +1266,7 @@ class Lab(object):
                     self._detach_owned_usb(attached)
                     return
             tty = self._find_fc_tty(
-                timeout=5, usb_port=attached, previous_ttys=previous_ttys
+                timeout=5, usb_port=attached.port, previous_ttys=previous_ttys
             )
             with self.lifecycle_lock:
                 if generation != self.generation:
@@ -1363,31 +1363,34 @@ class Lab(object):
             with self.lifecycle_lock:
                 self.usb_starting.discard(startup_token)
 
-    def _usb_reconnected(self, old_port, new_port):
+    def _usb_reconnected(self, attachment):
         with self.lifecycle_lock:
-            self.usb_ports.discard(old_port)
-            if new_port is not None:
-                self.usb_ports.add(new_port)
+            # Startup may not have published this attachment yet. Its stable
+            # identity remains valid when _remember_usb eventually runs.
+            if attachment.port is None:
+                self.usb_ports.discard(attachment)
             self.usb_attached = bool(self.usb_ports)
-            self.usb_port = next(iter(self.usb_ports), None)
+            self.usb_port = next((a.port for a in self.usb_ports), None)
             self.status = (
                 "USB reconnected after sleep; reopen the configurator connection"
-                if new_port is not None
+                if attachment.port is not None
                 else "USB reconnect failed after sleep"
             )
 
-    def _remember_usb(self, port):
-        with self.lifecycle_lock:
-            self.usb_ports.add(port)
-            self.usb_attached = True
-            self.usb_port = port
-
-    def _forget_usb(self, port):
+    def _remember_usb(self, attachment):
         with self.usb.lock, self.lifecycle_lock:
-            self.usb.forget(port)
-            self.usb_ports.discard(port)
+            if attachment not in self.usb.imports:
+                raise RuntimeError("USB attachment was lost during startup")
+            self.usb_ports.add(attachment)
+            self.usb_attached = True
+            self.usb_port = attachment.port
+
+    def _forget_usb(self, attachment):
+        with self.usb.lock, self.lifecycle_lock:
+            self.usb.forget(attachment)
+            self.usb_ports.discard(attachment)
             self.usb_attached = bool(self.usb_ports)
-            self.usb_port = next(iter(self.usb_ports), None)
+            self.usb_port = next((a.port for a in self.usb_ports), None)
 
     def _detach_owned_usb(self, port):
         with self.usb.lock, self.usb_cleanup_lock:

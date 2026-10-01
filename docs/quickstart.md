@@ -3,7 +3,12 @@
 ## Installed application
 
 On Windows, run `ESCSim-installer.exe`, accept the per-user installation, and
-open ESCSim from the Start menu. If usbip-win2 is absent, the installer offers
+choose an installation folder (default `%LOCALAPPDATA%\Programs\ESCSim`),
+then open **ESCSim Renode** or **ESCSim SITL** from the Start menu or optional
+desktop shortcuts. Both applications are included in one installer.
+For firmware development, use **Configure ESCSim for VS Code** in the Start
+menu; the [development instructions](../packaging/windows/README.txt) cover
+building and debugging both backends. If usbip-win2 is absent, the installer offers
 the bundled signed driver needed for browser configurator access. That optional
 step requires administrator approval, temporarily reconnects USB devices, and
 may require a reboot. PWM, DShot, DroneCAN, graphs, and simulation work without

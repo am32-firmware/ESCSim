@@ -66,7 +66,7 @@ Downloads are cached by artifact ID under `dist/releases/TAG/.artifacts`,
 and verified against GitHub's SHA-256 digest when one is provided. Use
 `--output DIRECTORY` to choose a different staging directory.
 
-The staged assets include application archives, the Windows Renode installer
+The staged assets include application archives, the combined Windows installer
 when available, `SHA256SUMS`, and `release-manifest.json`. The manifest records
 the source commit, workflow/run/artifact IDs and package checksums. Existing
 package archives are copied unchanged out of the enclosing Actions ZIP;
@@ -158,7 +158,8 @@ the platform, selected targets, pass/fail totals, and every result to
 
 Run the build from a Cygwin shell, but use native 64-bit Windows Python. Cygwin
 Python cannot install the PySide6 Windows wheels. Install Cygwin's
-`mingw64-x86_64-gcc-core` toolchain, then create an isolated environment:
+`mingw64-x86_64-gcc-core` toolchain plus `gcc-core`, `make`, `python3` and
+`git` for the bundled SITL, then create an isolated environment:
 
 ```sh
 py -3.12 -m venv .venv-win
@@ -213,6 +214,14 @@ and compile the installer with:
 make windows-installer PYTHON=.venv-win/Scripts/python.exe
 ./dist/installer/ESCSim-installer.exe /VERYSILENT /NORESTART /TASKS=""
 ```
+
+This builds both applications. Initialize `modules/am32-firmware` first
+(`git submodule update --init modules/am32-firmware`) or set `AM32_ROOT` to
+the desired firmware checkout. The SITL builder fetches current bootloader
+master. The combined installer creates **ESCSim Renode** and **ESCSim SITL**
+launchers and includes the console executable and VS Code workspace helper.
+See [Windows development setup](../packaging/windows/README.txt) for the
+compiler, debugger and workspace instructions shipped in the installer.
 
 Silent installs intentionally skip the optional driver prompt, making package
 smoke tests non-disruptive. A normal interactive install offers the bundled

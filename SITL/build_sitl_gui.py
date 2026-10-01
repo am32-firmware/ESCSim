@@ -89,6 +89,8 @@ def main():
     cmd.append('--onedir' if args.onedir or sys.platform == 'darwin' else '--onefile')
     if sys.platform == 'darwin':
         cmd += ['--osx-bundle-identifier', 'org.am32.escsim.sitl']
+    elif sys.platform.startswith('win'):
+        cmd += ['--icon', os.path.join(ROOT, 'packaging', 'escsim.ico')]
     for h in HIDDEN:
         cmd += ['--hidden-import', h]
     for e in EXCLUDES:

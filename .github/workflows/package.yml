@@ -15,6 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
+        id: python
         with:
           python-version: "3.12"
           cache: pip
@@ -40,6 +41,20 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: .\dist\ESCSim\ESCSim.exe targets status
+      - uses: cygwin/cygwin-install-action@v4
+        if: runner.os == 'Windows'
+        with:
+          packages: gcc-core make python3 git
+      - name: Build bundled Windows SITL
+        if: runner.os == 'Windows'
+        shell: C:\cygwin\bin\bash.exe --noprofile --norc -o igncr -eo pipefail '{0}'
+        env:
+          NATIVE_PYTHON: ${{ steps.python.outputs.python-path }}
+        run: |
+          export PATH=/usr/bin:$PATH
+          cd "$(cygpath -u "$GITHUB_WORKSPACE")"
+          git submodule update --init --depth 1 modules/am32-firmware
+          python3 SITL/build_win11.py --local --python "$(cygpath -u "$NATIVE_PYTHON")"
       - name: Build Windows installer
         if: runner.os == 'Windows'
         shell: pwsh

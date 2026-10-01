@@ -76,6 +76,7 @@ package:
 	$(PYTHON) scripts/build-package.py --configuration $(CONFIGURATION)
 
 windows-installer: package
+	python3 SITL/build_win11.py --local --python "$(PYTHON)"
 	$(PYTHON) scripts/build-windows-installer.py
 
 parity-all-mcus:

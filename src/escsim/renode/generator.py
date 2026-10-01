@@ -3083,6 +3083,10 @@ def main(argv=None):
         "terminal window (implies --run)",
     )
     ap.add_argument(
+        "--gdb-server", action="store_true",
+        help="wait for an IDE debugger without opening GDB (implies --run)",
+    )
+    ap.add_argument(
         "--gui",
         action="store_true",
         help="serve the SITL wire protocols and open sitl_gui.py "
@@ -3345,7 +3349,7 @@ def main(argv=None):
     print(repl)
     print(resc)
 
-    if not (args.run or args.gdb or args.gui or args.link or args.sigrok):
+    if not (args.run or args.gdb or args.gdb_server or args.gui or args.link or args.sigrok):
         return 0
 
     firmware_load = None
@@ -3561,7 +3565,9 @@ def main(argv=None):
         print("no status() helpers: %s" % e)
 
     gdb_proc = None
-    if args.gdb:
+    if args.gdb or args.gdb_server:
+        if not 1 <= args.gdb_port <= 65535:
+            ap.error("--gdb-port must be 1..65535")
         dbg = has_debug_info(symbol_elf, args.readelf)
         if dbg is False:
             print(
@@ -3574,6 +3580,11 @@ def main(argv=None):
                 "could not run %s, so not checking the ELF for debug info"
                 % args.readelf
             )
+    if args.gdb_server:
+        # Start virtual time when the IDE connects; the CPU remains under
+        # GDB control, so breakpoints can be installed before it runs.
+        setup += "; machine StartGdbServer %d true" % args.gdb_port
+    elif args.gdb:
         gdb = find_gdb(args.gdb_bin)
         launcher = os.path.join(outdir, "%s_gdb.sh" % args.target)
         write_gdb_launcher(launcher, gdb, symbol_elf, args.gdb_port)
@@ -3622,7 +3633,7 @@ def main(argv=None):
         # Under gdb the machine is deliberately halted at reset so the
         # debugger gets control first; otherwise there is nothing to wait
         # for and a GUI attached to a stopped machine looks broken.
-        if not args.gdb:
+        if not (args.gdb or args.gdb_server):
             setup += "; start"
     if args.gui:
         gui_proc = launch_gui(
@@ -3635,7 +3646,7 @@ def main(argv=None):
         setup += "; sigrok SampleRate %d" % args.sigrok_sample_rate
         setup += '; sigrok DeviceName "AM32 %s"' % args.target
         setup += "; sigrok Port %d" % args.sigrok_port
-        if not args.gdb and not (args.gui or args.link):
+        if not (args.gdb or args.gdb_server) and not (args.gui or args.link):
             setup += "; start"
         print("connect with:")
         print("    pulseview -d renode-la:conn=tcp/127.0.0.1/%d" % args.sigrok_port)

@@ -86,8 +86,16 @@ exe = EXE(
     disable_windowed_traceback=False,
     icon=str(root / "packaging" / "escsim.ico") if is_win else None,
 )
+executables = [exe]
+if is_win:
+    executables.append(EXE(
+        pyz, analysis.scripts, [], exclude_binaries=True,
+        name="ESCSim-cli", console=True, debug=False,
+        bootloader_ignore_signals=False, strip=False, upx=False,
+        icon=str(root / "packaging" / "escsim.ico"),
+    ))
 collection = COLLECT(
-    exe,
+    *executables,
     analysis.binaries,
     analysis.datas,
     strip=False,

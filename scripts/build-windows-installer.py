@@ -71,6 +71,12 @@ def main(argv=None) -> int:
         "--fetch-only", action="store_true", help="verify/download usbip-win2 only"
     )
     args = parser.parse_args(argv)
+    if not args.fetch_only:
+        for path in (ROOT / "dist/ESCSim/ESCSim.exe",
+                     ROOT / "dist/ESCSim/ESCSim-cli.exe",
+                     ROOT / "dist/windows-package/am32-sitl-gui.exe"):
+            if not path.is_file():
+                parser.error(f"missing {path}; build both Renode and SITL packages first")
     fetch_usbip(ROOT / "build" / "packaging")
     if not args.fetch_only:
         subprocess.run(

@@ -48,7 +48,13 @@ def test_windows_installer_is_per_user_and_bundles_verified_usbip_driver():
     installer = (root / "packaging" / "ESCSim.iss").read_text()
     builder = (root / "scripts" / "build-windows-installer.py").read_text()
     assert "PrivilegesRequired=lowest" in installer
-    assert "{localappdata}\\Programs\\ESCSim" in installer
+    assert "DefaultDirName={localappdata}\\Programs\\ESCSim" in installer
+    assert "DisableDirPage=no" in installer
+    assert 'Name: "{autodesktop}\\ESCSim Renode"' in installer
+    assert 'Name: "{autodesktop}\\ESCSim SITL"' in installer
+    assert 'DestDir: "{app}\\SITL"' in installer
+    assert 'DestDir: "{app}\\Developer"' in installer
+    assert "ESCSim-cli.exe" in builder
     assert "SetupIconFile=escsim.ico" in installer
     assert "USBip-0.9.7.7-x64.exe" in installer
     assert "ExtractTemporaryFile" in installer

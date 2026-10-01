@@ -8,6 +8,8 @@ AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
 DefaultDirName={localappdata}\Programs\ESCSim
+; Always offer the folder chooser, including when upgrading an existing install.
+DisableDirPage=no
 DefaultGroupName=ESCSim
 OutputDir=..\dist\installer
 OutputBaseFilename=ESCSim-installer
@@ -22,18 +24,28 @@ WizardStyle=modern
 
 [Files]
 Source: "..\dist\ESCSim\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\dist\windows-package\*"; DestDir: "{app}\SITL"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "windows\*"; DestDir: "{app}\Developer"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\licenses\usbip-win2-BSD-2-Clause.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
 Source: "..\build\packaging\USBip-0.9.7.7-x64.exe"; Flags: dontcopy
 
 [Icons]
-Name: "{group}\ESCSim"; Filename: "{app}\ESCSim.exe"
-Name: "{autodesktop}\ESCSim"; Filename: "{app}\ESCSim.exe"; Tasks: desktopicon
+Name: "{group}\ESCSim Renode"; Filename: "{app}\ESCSim.exe"
+Name: "{group}\ESCSim SITL"; Filename: "{app}\SITL\am32-sitl-gui.exe"; IconFilename: "{app}\ESCSim.exe"
+Name: "{group}\Configure ESCSim for VS Code"; Filename: "{app}\Developer\Configure VS Code.cmd"
+Name: "{autodesktop}\ESCSim Renode"; Filename: "{app}\ESCSim.exe"; Tasks: desktopicon
+Name: "{autodesktop}\ESCSim SITL"; Filename: "{app}\SITL\am32-sitl-gui.exe"; IconFilename: "{app}\ESCSim.exe"; Tasks: desktopicon
+
+[InstallDelete]
+Type: files; Name: "{group}\ESCSim.lnk"
+Type: files; Name: "{autodesktop}\ESCSim.lnk"
 
 [Tasks]
-Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional icons:"
+Name: "desktopicon"; Description: "Create both desktop launchers"; GroupDescription: "Additional icons:"
 
 [Run]
-Filename: "{app}\ESCSim.exe"; Description: "Launch ESCSim"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\ESCSim.exe"; Description: "Launch ESCSim Renode"; Flags: nowait postinstall skipifsilent unchecked
+Filename: "{app}\SITL\am32-sitl-gui.exe"; Description: "Launch ESCSim SITL"; Flags: nowait postinstall skipifsilent unchecked
 
 [Code]
 const

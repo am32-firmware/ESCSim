@@ -350,6 +350,8 @@ def release_notes(tag, sha, records, extra=""):
         "",
         "Choose `am32-sitl-gui-*` for the native AM32 SITL simulator, or "
         "`ESCSim-*` for the Renode-based simulator. `am32-capture-*` is the calibration capture tool.",
+        "On Windows, the ESCSim installer includes both simulators, separate ESCSim SITL and "
+        "ESCSim Renode launchers, and a VS Code firmware debugging setup helper.",
         "",
         "SITL macOS packages are provided separately for Apple Silicon (arm64) and Intel (x86_64). "
         "macOS apps are not notarized; see the package instructions for first launch. "

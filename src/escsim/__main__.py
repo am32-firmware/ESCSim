@@ -174,6 +174,15 @@ def main(argv: list[str] | None = None) -> int:
         from escsim.renode.generator import main as generator_main
 
         return generator_main(effective_argv[1:])
+    if effective_argv[:1] == ["debug"]:
+        from escsim.debug import main as debug_main
+
+        return debug_main(effective_argv[1:])
+    if effective_argv[:1] == ["control"]:
+        from escsim.control import ui
+
+        ui._ensure_stdio()
+        return ui.create_ui(ui.argument_parser().parse_args(effective_argv[1:]))
     if effective_argv[:1] == ["gui"]:
         from escsim.gui import main as gui_main
 

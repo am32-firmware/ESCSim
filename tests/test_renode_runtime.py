@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import json
+from pathlib import Path
 import subprocess
 import sys
 
@@ -159,6 +161,45 @@ def test_process_tree_starts_and_stops():
     tree.stop(graceful_timeout=0.1, sweep_timeout=0.1)
     assert process.poll() is not None
     assert not tree.running()
+
+
+def test_private_temp_is_inherited_without_changing_parent_environment():
+    environment = dict(os.environ, ESCSIM_TEMP_TEST="preserved")
+    original = environment.copy()
+    code = (
+        "import json,os,tempfile; "
+        "print(json.dumps([tempfile.gettempdir(), "
+        "[os.environ[k] for k in ('TEMP','TMP','TMPDIR')], "
+        "os.environ['ESCSIM_TEMP_TEST']]))"
+    )
+    tree = ProcessTree([sys.executable, "-c", code], isolate_temp=True,
+                       env=environment, stdout=subprocess.PIPE, text=True)
+    try:
+        output, _ = tree.process.communicate(timeout=15)
+        root, variables, preserved = json.loads(output)
+        assert all(Path(value) == Path(root) for value in variables)
+        assert Path(root).is_dir()
+        assert preserved == "preserved"
+        assert environment == original
+    finally:
+        tree.stop()
+    assert not Path(root).exists()
+
+
+def test_private_temp_is_removed_when_spawn_fails(tmp_path, monkeypatch):
+    created = []
+    temporary_directory = process_module.tempfile.TemporaryDirectory
+
+    def record_directory(**kwargs):
+        result = temporary_directory(dir=tmp_path, **kwargs)
+        created.append(Path(result.name))
+        return result
+
+    monkeypatch.setattr(process_module.tempfile, "TemporaryDirectory", record_directory)
+    with pytest.raises(OSError):
+        ProcessTree([str(tmp_path / "missing-executable")], isolate_temp=True)
+    assert len(created) == 1
+    assert not created[0].exists()
 
 
 def test_windows_process_windows_are_hidden(monkeypatch):

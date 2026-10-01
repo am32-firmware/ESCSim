@@ -4,6 +4,7 @@ import ctypes
 import os
 import signal
 import subprocess
+import tempfile
 import time
 
 
@@ -107,10 +108,26 @@ class _WindowsJob:
 
 
 class ProcessTree:
-    """A Popen process and every descendant it creates."""
+    """A Popen process and descendants, with private temporary files on Windows."""
 
-    def __init__(self, command, **kwargs):
+    def __init__(self, command, *, isolate_temp=None, **kwargs):
         self.job = None
+        self._temp_directory = None
+        # Renode scans renode-<pid> directories below the Windows temp root.
+        # A stale PID can now belong to a protected process, causing its
+        # HasExited query to throw Access Denied before emulation starts.
+        # Give each owned tree a fresh root, inherited by all descendants.
+        if isolate_temp is None:
+            isolate_temp = os.name == "nt"
+        if isolate_temp:
+            self._temp_directory = tempfile.TemporaryDirectory(
+                prefix="escsim-process-", ignore_cleanup_errors=True
+            )
+            environment = kwargs.get("env")
+            environment = dict(os.environ if environment is None else environment)
+            for name in ("TEMP", "TMP", "TMPDIR"):
+                environment[name] = self._temp_directory.name
+            kwargs["env"] = environment
         if os.name == "nt":
             kwargs["creationflags"] = (
                 kwargs.get("creationflags", 0) | subprocess.CREATE_NEW_PROCESS_GROUP
@@ -120,14 +137,23 @@ class ProcessTree:
             )
         else:
             kwargs["start_new_session"] = True
-        self.process = subprocess.Popen(command, **kwargs)
-        if os.name == "nt":
-            try:
-                self.job = _WindowsJob(self.process)
-            except BaseException:
-                self.process.kill()
-                self.process.wait()
-                raise
+        try:
+            self.process = subprocess.Popen(command, **kwargs)
+            if os.name == "nt":
+                try:
+                    self.job = _WindowsJob(self.process)
+                except BaseException:
+                    self.process.kill()
+                    self.process.wait()
+                    raise
+        except BaseException:
+            self._cleanup_temp()
+            raise
+
+    def _cleanup_temp(self):
+        if self._temp_directory is not None:
+            self._temp_directory.cleanup()
+            self._temp_directory = None
 
     def stop(self, graceful_timeout=5, sweep_timeout=5):
         process = self.process
@@ -160,6 +186,7 @@ class ProcessTree:
                 self.job.close()
                 self.job = None
             self.process = None
+            self._cleanup_temp()
             return
 
         pgid = process.pid
@@ -190,6 +217,7 @@ class ProcessTree:
                 process.kill()
                 process.wait()
         self.process = None
+        self._cleanup_temp()
 
     def running(self):
         return self.process is not None and self.process.poll() is None

@@ -541,6 +541,7 @@ class SimStream(object):
     vu, vv, vw, vbus, ibus, modes, comp_phase, comp_out)"""
 
     SAMPLE = struct.Struct("<Qfffffffffff3sBB3x")
+    SCOPE_SAMPLE = struct.Struct("<Qfffffffffff3sBB3x7f3sxfI")
     MAGIC_CMD = 0x5353
     MAGIC_DATA = 0x5354
     MAGIC_REPLY = 0x5355
@@ -636,15 +637,16 @@ class SimStream(object):
                     "t": time.time(),
                 }
                 continue
-            if magic != self.MAGIC_DATA or b2 != 2:
+            if magic != self.MAGIC_DATA or b2 not in (2, 3):
                 continue
             count = b3
+            layout = self.SCOPE_SAMPLE if b2 == 3 else self.SAMPLE
             batch = []
             for k in range(count):
-                off = 4 + k * self.SAMPLE.size
-                if off + self.SAMPLE.size > len(d):
+                off = 4 + k * layout.size
+                if off + layout.size > len(d):
                     break
-                smp = self.SAMPLE.unpack_from(d, off)
+                smp = layout.unpack_from(d, off)
                 batch.append((smp[0] * 1e-9,) + smp[1:])
             now = time.time()
             restarted = bool(

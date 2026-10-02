@@ -68,3 +68,33 @@ def test_speedup_is_retained_and_reapplied_when_state_stream_appears():
     finally:
         sim.close()
         server.close()
+
+
+@pytest.mark.parametrize("version", [2, 3])
+def test_state_stream_delivers_legacy_and_extended_scope_samples(version):
+    server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    server.bind(("127.0.0.1", 0))
+    sim = SimStream(port=server.getsockname()[1])
+    captured = []
+    sim.scope.feed = captured.extend
+    try:
+        # The v3 suffix carries BEMF/filter/diode/duty/desync values. Two
+        # samples catch an incorrect stride as well as a dropped packet.
+        layout = struct.Struct("<Q11f3sBB3x" + ("7f3sxfI" if version == 3 else ""))
+        suffix = (1., 2., 3., 4., 5., 6., 7., b"\x01\x00\x01", .5, 19) if version == 3 else ()
+        values = [(t, *range(11), b"\x00\x01\x02", 1, 0, *suffix)
+                  for t in (100000, 150000)]
+        packet = struct.pack("<HBB", SimStream.MAGIC_DATA, version, 2)
+        server.sendto(packet + b"".join(layout.pack(*row) for row in values),
+                      sim.sock.getsockname())
+        deadline = time.monotonic() + 2
+        while len(captured) < 2 and time.monotonic() < deadline:
+            time.sleep(.01)
+        assert len(captured) == 2
+        assert list(sim.samples) == captured
+        for actual, expected in zip(captured, values):
+            assert actual[0] == pytest.approx(expected[0] * 1e-9)
+            assert actual[1:] == expected[1:]
+    finally:
+        sim.close()
+        server.close()

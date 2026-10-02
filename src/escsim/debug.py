@@ -92,11 +92,11 @@ def workspace(args):
                       "problemMatcher": []})
         launch = {"name": "ESCSim " + label, "type": "cppdbg", "request": "launch",
                   "cwd": "${workspaceFolder}", "MIMode": "gdb", "preLaunchTask": task,
-                  "externalConsole": False, "avoidWindowsConsoleRedirection": True,
-                  "sourceFileMap": {cygpath(cygwin, repo): "${workspaceFolder}"}}
+                  "externalConsole": False, "avoidWindowsConsoleRedirection": True}
         if backend == "sitl":
             launch.update({"program": "${workspaceFolder}/build/escsim-sitl/firmware.exe",
                            "miDebuggerPath": str(cygwin / "bin/gdb.exe"),
+                           "sourceFileMap": {cygpath(cygwin, repo): "${workspaceFolder}"},
                            "args": ["--input-type", "1", "--can-uri", "none",
                                     "--input-port", "57733", "--state-port", "57734",
                                     "--eeprom", "${workspaceFolder}/build/escsim-sitl/eeprom.bin",
@@ -104,6 +104,8 @@ def workspace(args):
                            "setupCommands": [{"text": "handle SIGUSR1 nostop noprint pass"}],
                            "stopAtEntry": True})
         else:
+            # The native ARM compiler records Windows source paths. Mapping
+            # them back to Cygwin paths makes editor breakpoints stay pending.
             elf = "${workspaceFolder}/build/escsim-renode/firmware.elf"
             server_args = ["debug", "serve", "--target", args.target, "--elf", elf,
                            "--targets-file", "${workspaceFolder}/Inc/targets.h",

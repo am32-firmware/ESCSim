@@ -107,6 +107,12 @@ def validate(executable, workspace, backend, build=False):
         assert function in frame["name"], frame
         assert frame.get("source", {}).get("path") and frame["line"] > 0, frame
         assert Path(frame["source"]["path"]).is_file(), frame
+        # Function breakpoints do not exercise VS Code's reverse source-path
+        # mapping. Verify a gutter breakpoint at a known executable line too.
+        source_breakpoint = adapter.request("setBreakpoints", {
+            "source": {"path": frame["source"]["path"]},
+            "breakpoints": [{"line": frame["line"]}]})
+        assert source_breakpoint["breakpoints"][0]["verified"], source_breakpoint
         adapter.request("evaluate", {"expression": "$pc", "frameId": frame["id"]})
         memory = adapter.request("readMemory", {
             "memoryReference": frame["instructionPointerReference"], "count": 16})
@@ -120,7 +126,7 @@ def validate(executable, workspace, backend, build=False):
         adapter.request("disconnect", {"terminateDebuggee": True})
         # Check normal adapter shutdown before the outer safety net stops it.
         adapter.tree.process.wait(timeout=30)
-        print(f"PASS {backend}: breakpoint, source, scopes, variables, registers, memory, step, disconnect", flush=True)
+        print(f"PASS {backend}: function/source breakpoints, source, scopes, variables, registers, memory, step, disconnect", flush=True)
     finally:
         adapter.tree.stop()
 

@@ -36,6 +36,8 @@ def test_workspace_keeps_existing_vscode_and_uses_matching_debuggers(workspace_a
     sitl, renode = document["launch"]["configurations"]
     assert sitl["miDebuggerPath"] == str(args.cygwin / "bin/gdb.exe")
     assert renode["miDebuggerPath"] == str(args.arm_gdb)
+    assert sitl["sourceFileMap"] == {"/cygdrive/c/AM32 firmware": "${workspaceFolder}"}
+    assert "sourceFileMap" not in renode
     assert "escsim-sitl/firmware.exe" in sitl["program"]
     assert "escsim-renode/firmware.elf" in renode["program"]
     assert renode["debugServerPath"].endswith("ESCSim-cli.exe")

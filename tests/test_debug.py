@@ -43,6 +43,11 @@ def test_workspace_keeps_existing_vscode_and_uses_matching_debuggers(workspace_a
     assert renode["debugServerPath"].endswith("ESCSim-cli.exe")
     assert '--targets-file' in renode["debugServerArgs"]
     assert sitl["setupCommands"] == [{"text": "handle SIGUSR1 nostop noprint pass"}]
+    # Cygwin sleeps can reduce simulation speed to a crawl; an unread GDB
+    # stderr pipe must not block the firmware either.
+    assert "--nosleep" in sitl["args"]
+    assert sitl["args"][sitl["args"].index("--log") + 1] == (
+        "${workspaceFolder}/build/escsim-sitl/firmware.log")
     tasks = document["tasks"]["tasks"]
     for launch in (sitl, renode):
         task = next(task for task in tasks if task["label"] == launch["preLaunchTask"])

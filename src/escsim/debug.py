@@ -100,6 +100,8 @@ def workspace(args):
                            "args": ["--input-type", "1", "--can-uri", "none",
                                     "--input-port", "57733", "--state-port", "57734",
                                     "--eeprom", "${workspaceFolder}/build/escsim-sitl/eeprom.bin",
+                                    "--nosleep",
+                                    "--log", "${workspaceFolder}/build/escsim-sitl/firmware.log",
                                     "--wait-for-input", "--exit-on-reset"],
                            "setupCommands": [{"text": "handle SIGUSR1 nostop noprint pass"}],
                            "stopAtEntry": True})

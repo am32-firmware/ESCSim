@@ -547,6 +547,10 @@ class SimStream(object):
     MAGIC_INFO = 0x5359
 
     def __init__(self, host="127.0.0.1", port=57734, period_us=50, maxlen=40000):
+        from .scope import ScopeCapture
+
+        self.scope = ScopeCapture()
+        self.scope_enabled = False
         self.addr = (host, port)
         self.period_us = period_us
         self.enabled = False
@@ -583,7 +587,7 @@ class SimStream(object):
                 # averaged sampling at coarse periods, so a slow scope
                 # shows the mean over each period instead of aliased
                 # point samples of the PWM
-                flags = 1 if self.period_us >= 10 else 0
+                flags = 2 if self.scope_enabled else (1 if self.period_us >= 10 else 0)
                 pkt = struct.pack(
                     "<HBBI", self.MAGIC_CMD, 0, flags, int(round(self.period_us * 1000))
                 )
@@ -658,6 +662,7 @@ class SimStream(object):
                 self.speedup_pending = False
             with self.lock:
                 self.samples.extend(batch)
+            self.scope.feed(batch)
             self.rate.tick(len(batch))
 
     def latest(self):

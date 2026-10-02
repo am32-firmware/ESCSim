@@ -46,6 +46,16 @@ launchers' simulator Start buttons alone during a VS Code debug session.
 The motor control task connects to the debugger-owned firmware process.
 Disconnecting/stopping the Renode debugger also stops its emulator.
 
+In Renode motor controls, tick "Virtual scope (DHO804)" for the four-channel
+triggered scope with Run/Stop, Single, Auto Scale, A/B cursors and CSV/PNG
+export. It starts in Auto sweep so captures appear before commutation.
+Renode supplies phase voltages/currents, bus voltage/current, virtual neutral
+and comparator logic, with edge and commutation triggers. Samples are
+instantaneous and limited to 20 us or coarser; Fine capture requests 20 us
+and 0.1x speed. BEMF, filtered nodes, diode/demag, duty and firmware-desync
+signals are unavailable in this stream and their controls are disabled.
+Scope acquisition pauses when the debugger halts emulation.
+
 Custom tool locations / setup from a terminal
 --------------------------------------------
 In PowerShell (change the source and tool paths to match your machine):

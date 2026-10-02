@@ -29,6 +29,7 @@ actual UI paths:
   can_value X, can_rate N, param NAME VALUE, rpm_graph 0|1,
   rpm_window SECONDS, i_window MS, v_window MS,
   wave sine|square FREQ AMP BASE [dshot|can], wave off,
+  scope 0|1, scope_single, scope_status, scope_trigger NAME, scope_save CSV, scope_snap PNG,
   usb 0|1, usb_status, reset_esc (renode backend),
   snap FILE [rpm], status, quit
 responses go back to the client prefixed with OK/STATUS/ERR. A client
@@ -1516,6 +1517,7 @@ def create_ui(args=None, app=None, container=None):
 
     graph_i_check = QCheckBox("Current graph")
     graph_v_check = QCheckBox("Voltage graph")
+    scope_check = QCheckBox("Virtual scope (DHO804)")
     graph_rpm_check = QCheckBox("RPM/throttle graph")
     motorview_check = QCheckBox("Motor view")
     graph_i_check.setToolTip(
@@ -1549,13 +1551,14 @@ def create_ui(args=None, app=None, container=None):
     g4.addWidget(graph_v_check, 1, 1)
     g4.addWidget(motorview_check, 1, 2)
     g4.addWidget(graph_rpm_check, 1, 3)
+    g4.addWidget(scope_check, 1, 4)
     sim_rate_label = QLabel("")
     sim_rate_label.setToolTip(
         "State stream rate actually arriving from the simulation (wall\n"
         "clock). It is the sample period in simulated time divided by the\n"
         "speedup, capped at about 200k samples/s."
     )
-    g4.addWidget(sim_rate_label, 1, 4)
+    g4.addWidget(sim_rate_label, 3, 2, 1, 3)
 
     # simulation speedup, logarithmic 0.001x .. 2x, for slow motion in
     # the motor view
@@ -1816,7 +1819,7 @@ def create_ui(args=None, app=None, container=None):
     # meant to be used together with a low speedup to keep the wall
     # clock data rate sane
     sample_spin = QDoubleSpinBox()
-    sample_spin.setRange(0.5, 1000.0)
+    sample_spin.setRange(20.0 if renode else 0.5, 1000.0)
     sample_spin.setValue(50.0)
     sample_spin.setSuffix(" us sample")
     sample_spin.setDecimals(1)
@@ -1835,6 +1838,11 @@ def create_ui(args=None, app=None, container=None):
         "dead time. The wall clock rate is capped at ~200k samples/s, so\n"
         "fine periods only take full effect at low speedups."
     )
+    if renode:
+        sample_spin.setToolTip(
+            "Sample interval in simulated microseconds; Renode supports 20 µs or coarser. "
+            "The DHO804 scope always requests instantaneous samples."
+        )
     sample_spin.valueChanged.connect(sample_changed)
 
     # the scopes: each signal set gets its own top level pyqtgraph
@@ -1863,9 +1871,47 @@ def create_ui(args=None, app=None, container=None):
             graph_i_check.isChecked()
             or graph_v_check.isChecked()
             or motorview_check.isChecked()
+            or scope_check.isChecked()
         )
         sim.period_us = sample_spin.value() if fine else 2000
+        sim.scope_enabled = scope_check.isChecked()
         sim.enabled = True
+
+    virtual_scope = None
+
+    def scope_fine_capture():
+        sample_spin.setValue(20.0 if renode else 0.5)
+        set_speed_slider(100)  # 0.1x
+
+    def scope_toggled():
+        nonlocal virtual_scope
+        if scope_check.isChecked():
+            if not HAVE_PYQTGRAPH:
+                model_status.setText("pyqtgraph not available")
+                scope_check.setChecked(False)
+                return
+            if virtual_scope is None:
+                from .scope_ui import DemagScopeWindow
+
+                virtual_scope = DemagScopeWindow(
+                    sim, lambda: scope_check.setChecked(False), scope_fine_capture,
+                    title=esc_title("Renode" if renode else "SITL"),
+                    metadata=lambda: dict(backend=args.backend, host=args.host,
+                                          state_port=args.state_port,
+                                          requested_sample_us=sample_spin.value()),
+                    controls_window=win, backend=args.backend,
+                )
+            elif not sim.scope.enabled:
+                virtual_scope.arm()
+            # Offer immediate feedback even before the motor commutates.
+            virtual_scope.mode.setCurrentText("Auto")
+        elif virtual_scope is not None:
+            sim.scope.stop()
+        if virtual_scope is not None:
+            virtual_scope.setVisible(scope_check.isChecked())
+        update_sim_enable()
+
+    scope_check.toggled.connect(scope_toggled)
 
     update_sim_enable()  # status pane streams from startup
 
@@ -2757,6 +2803,34 @@ def create_ui(args=None, app=None, container=None):
                 graph_v_check.setChecked(True)
             else:
                 graph_i_check.setChecked(True)
+        elif cmd == "scope":
+            scope_check.setChecked(bool(int(cargs[0])))
+        elif cmd == "scope_single":
+            scope_check.setChecked(True)
+            virtual_scope.arm("Single")
+        elif cmd == "scope_trigger":
+            scope_check.setChecked(True)
+            name = " ".join(cargs)
+            index = virtual_scope.trigger.findText(name)
+            if index < 0 or not virtual_scope.trigger.model().item(index).isEnabled():
+                raise ValueError("unavailable scope trigger: " + name)
+            virtual_scope.trigger.setCurrentIndex(index)
+        elif cmd == "scope_status":
+            generation, frame, state = sim.scope.snapshot()
+            reply("STATUS scope: " + json.dumps(dict(
+                generation=generation, state=state,
+                samples=len(frame.samples) if frame else 0,
+                measurements=frame.measurements(frame.trigger_phase) if frame else None,
+            )))
+            return
+        elif cmd == "scope_save":
+            if virtual_scope is None or virtual_scope.frame is None:
+                raise ValueError("no scope capture")
+            virtual_scope.save_csv(" ".join(cargs))
+        elif cmd == "scope_snap":
+            if virtual_scope is None:
+                raise ValueError("scope is closed")
+            virtual_scope.save_png(" ".join(cargs))
         elif cmd == "sample_us":
             sample_spin.setValue(float(cargs[0]))
         elif cmd in ("i_window", "v_window"):
@@ -3164,6 +3238,9 @@ def create_ui(args=None, app=None, container=None):
         cleanup_backends()
         for scope, _plot, _curves, _window in graph_windows.values():
             scope.close()
+        if virtual_scope is not None:
+            virtual_scope.timer.stop()
+            virtual_scope.close()
         rpm_scope = rpm_graph.get("win")
         if rpm_scope is not None:
             rpm_scope.close()

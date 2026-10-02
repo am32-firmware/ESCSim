@@ -7,8 +7,9 @@ choose an installation folder (default `%LOCALAPPDATA%\Programs\ESCSim`),
 then open **ESCSim Renode** or **ESCSim SITL** from the Start menu or optional
 desktop shortcuts. Both applications are included in one installer.
 For firmware development, use **Configure ESCSim for VS Code** in the Start
-menu; the [development instructions](../packaging/windows/README.txt) cover
-building and debugging both backends. If usbip-win2 is absent, the installer offers
+menu. Follow the illustrated [SITL](windows-vscode-sitl.md) or
+[Renode/SEQURE_G431](windows-vscode-renode.md) VS Code guide for tool setup,
+building, breakpoints, motor controls, and the DHO804 scope. If usbip-win2 is absent, the installer offers
 the bundled signed driver needed for browser configurator access. That optional
 step requires administrator approval, temporarily reconnects USB devices, and
 may require a reboot. PWM, DShot, DroneCAN, graphs, and simulation work without
@@ -23,7 +24,7 @@ python3 -m venv .venv
 .venv/bin/escsim
 ```
 
-On first use:
+In the **ESCSim Renode** launcher, on first use:
 
 1. Choose a target. Typing in the Target field filters the list.
 2. Keep the stable published firmware and compatible bootloader selected.

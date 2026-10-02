@@ -14,6 +14,14 @@ use. USB configurator access optionally needs the bundled usbip-win2 driver.
 
 Developing your own firmware with Visual Studio Code
 ---------------------------------------------------
+Illustrated step-by-step guides, starting from a fresh VS Code setup:
+SITL: https://github.com/am32-firmware/ESCSim/blob/main/docs/windows-vscode-sitl.md
+Renode: https://github.com/am32-firmware/ESCSim/blob/main/docs/windows-vscode-renode.md
+
+Install Git for Windows as well as VS Code before checking out the firmware.
+The generated ESCSim workspace currently checks for both toolchains below,
+even if you plan to use only one backend.
+
 1. Install VS Code and its Microsoft C/C++ extension (ms-vscode.cpptools).
 2. Check out current AM32 firmware sources from:
    https://github.com/am32-firmware/AM32

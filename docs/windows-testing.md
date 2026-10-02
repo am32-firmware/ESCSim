@@ -25,8 +25,9 @@ BDShot also requires decoded telemetry replies.
 
 Windows-specific validation also covers:
 
-- 91 native Python/Qt tests passing, with only the POSIX-mode and external-GCC
-  comparison tests skipped;
+- 240 native Python/Qt tests passing and 10 skipped in the DHO804 installer
+  validation at `c058fe0`; this is an earlier broad run, not a claim that every
+  test was rerun for subsequent documentation/debugger changes;
 - native DLL build and smoke executable;
 - usbip-win2 0.9.7.7 attach, exact serial identity, COM-port enumeration,
   28-byte serial echo, and exact owned-port detach;
@@ -38,3 +39,51 @@ Windows-specific validation also covers:
 Run the comprehensive matrix and USB/IP check with the Makefile commands in
 [packaging.md](packaging.md). The scheduled Windows workflow fails if any
 matrix cell fails and still uploads the full JSON report for diagnosis.
+
+## Fresh-checkout walkthrough validation
+
+The [SITL guide](windows-vscode-sitl.md) and [Renode guide](windows-vscode-renode.md)
+were exercised on Windows 11 on 2026-10-02 using a separate VS Code profile,
+Microsoft C/C++ 1.34.4, and a clean upstream AM32 checkout at
+`2738df3240baa5bd4295b460cf0c5cfe0bd49d97`. The setup scripts installed the ARM
+toolchain and detected the existing Cygwin installation (GCC 14.4.0, GDB 17.2,
+Make 4.4.1, Python 3.12.12). A completely new Cygwin installation was not tested.
+
+Actual RDP screenshots cover the welcome screen, extension installation,
+installer directory/shortcuts, source checkout, toolchain verification,
+workspace generation, both debugger entries, source breakpoints, control
+tasks, running motors, and DHO804 captures. These are application captures,
+not mockups. See [capture details](images/windows-vscode/README.md).
+
+- Renode: built SEQURE_G431, stopped at reset and a source gutter breakpoint,
+  inspected registers, continued to arming, drove DShot300 from motor controls,
+  and captured phase voltage/current, bus voltage and comparator signals.
+  CSV and setup export succeeded. The real C/C++ debug-adapter check passed
+  function and source breakpoints, variables, registers, memory, stepping and
+  disconnect after correcting the native Windows source-path mapping.
+- SITL: built the host firmware, stopped at host `main` and firmware
+  `am32_main`, controlled the motor with DShot300 (about 1,559 RPM), and saved a
+  four-channel DHO804 single capture with 0.5 µs samples. The shared controls
+  now accept the extended scope telemetry. Enabling the existing `--nosleep`
+  timing mode restored approximately real-time operation under Cygwin GDB;
+  without it the measured stream was only about 44 samples/s at a requested
+  20,000 samples/s. Generated workspaces now set this option and log firmware
+  diagnostics to a file.
+- The final generated SITL launch also passed the real C/C++ debug-adapter
+  checks for function/source breakpoints, variables, registers, memory, stepping
+  and disconnect, using the restored executable without rebuilding.
+- The focused workspace/stream regression suite passed all 7 tests on Linux.
+  The full hardware-family matrix above predates these debugger/UI changes.
+
+**Release blocker:** Defender detected the freshly built demonstration SITL
+`firmware.exe` as `Trojan:Win32/Bearfoos.A!ml` (signature 1.459.506.0). This has
+not been established as a false positive. The debug/scope test used an
+explicitly approved temporary exclusion for that exact file only, and the
+already-built executable was restored from quarantine. The exclusion was
+removed after testing, the normal workspace build task was restored, and no
+test firmware or Renode processes were left running. Its intermediate ELF
+remained blocked, so the debugger test skipped the pre-launch rebuild; this
+was not an uninterrupted clean F5 validation. Do not treat those screenshots
+as evidence that a fresh Windows installation will pass Defender. Resolve
+and recheck this detection before publishing the release or declaring the
+fresh-checkout SITL workflow fully validated.

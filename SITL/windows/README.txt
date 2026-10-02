@@ -1,6 +1,14 @@
 AM32 SITL for Windows (64-bit)
 =============================
 
+For firmware development with the combined ESCSim installer, follow:
+https://github.com/am32-firmware/ESCSim/blob/main/docs/windows-vscode-sitl.md
+The companion Renode guide is:
+https://github.com/am32-firmware/ESCSim/blob/main/docs/windows-vscode-renode.md
+
+The steps below describe the standalone SITL ZIP package. The combined
+installer instead creates the "ESCSim SITL" desktop/Start menu launcher.
+
 1. Extract the entire ZIP with Explorer's "Extract All".
 2. Double-click am32-sitl-gui.exe.
 3. In "SITL process", choose DShot in the Input box and click "Start

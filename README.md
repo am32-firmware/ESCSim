@@ -1,9 +1,24 @@
 # ESCSim
 
-ESCSim is a standalone, Renode-based simulator for real AM32 ESC firmware.
-It contains the combined Target and Control application, downloads verified
-Renode/firmware/bootloader releases, and does not require an AM32 checkout or
-embedded compiler toolchain at runtime.
+ESCSim simulates AM32 ESC firmware with two backends: **Renode** executes
+hardware firmware on an emulated microcontroller, while **SITL** runs firmware
+compiled for the host CPU. Both provide motor controls and a DHO804 virtual
+scope. Running the bundled applications does not require a firmware checkout
+or compiler.
+
+On Windows, download **ESCSim-installer.exe** from the
+[releases page](https://github.com/am32-firmware/ESCSim/releases). Choose an
+installation folder; the installer provides **ESCSim Renode** and **ESCSim SITL**
+desktop and Start menu launchers.
+
+For building and debugging your own firmware, follow the illustrated guides
+from a fresh Windows VS Code setup:
+
+- [Build and debug SITL in VS Code](docs/windows-vscode-sitl.md).
+- [Build and debug SEQURE_G431 in Renode with VS Code](docs/windows-vscode-renode.md).
+
+Each guide covers tool installation, the generated workspace, source
+breakpoints, UI input control, and the DHO804 scope.
 
 See the [five-minute quick start](docs/quickstart.md), the
 [packaging guide](docs/packaging.md), and the current

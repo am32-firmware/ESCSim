@@ -220,8 +220,11 @@ This builds both applications. Initialize `modules/am32-firmware` first
 the desired firmware checkout. The SITL builder fetches current bootloader
 master. The combined installer creates **ESCSim Renode** and **ESCSim SITL**
 launchers and includes the console executable and VS Code workspace helper.
-See [Windows development setup](../packaging/windows/README.txt) for the
-compiler, debugger and workspace instructions shipped in the installer.
+See the illustrated [SITL VS Code guide](windows-vscode-sitl.md) and
+[Renode VS Code guide](windows-vscode-renode.md) for compiler setup, workspace
+generation, breakpoints, input controls, and scope capture. A short
+[Windows development reference](../packaging/windows/README.txt) is also
+shipped in the installer.
 
 Silent installs intentionally skip the optional driver prompt, making package
 smoke tests non-disruptive. A normal interactive install offers the bundled

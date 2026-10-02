@@ -36,9 +36,10 @@ even if you plan to use only one backend.
    Debug and press F5. Each configuration builds its own firmware first.
 
 SITL uses the Cygwin gdb.exe matched to the compiler. It starts at main;
-set a breakpoint in am32_main or tenKhzRoutine, then Continue. SIGUSR1
-is passed through so the emulated interrupts can run. Reset ends a debug
-session; press F5 again to restart it. Builds go in build/escsim-sitl.
+enable zero-throttle DShot in motor controls, set a breakpoint in am32_main
+or tenKhzRoutine, then Continue. High-accuracy timing (--nosleep) avoids slow
+Cygwin sleeps. Firmware diagnostics go to build/escsim-sitl/firmware.log.
+Reset ends a debug session; press F5 to restart. Builds go in build/escsim-sitl.
 
 Renode uses arm-none-eabi-gdb.exe and a GDB server owned by VS Code.
 It stops at the reset vector. Set a breakpoint in main and Continue;

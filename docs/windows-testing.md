@@ -72,7 +72,9 @@ not mockups. See [capture details](images/windows-vscode/README.md).
 - The final generated SITL launch also passed the real C/C++ debug-adapter
   checks for function/source breakpoints, variables, registers, memory, stepping
   and disconnect, using the restored executable without rebuilding.
-- The focused workspace/stream regression suite passed all 7 tests on Linux.
+- The focused workspace/stream regression suite passed all 7 tests on both
+  Linux and Windows. Packaged Renode controls also opened and closed the
+  DHO804 scope successfully.
   The full hardware-family matrix above predates these debugger/UI changes.
 
 **Release blocker:** Defender detected the freshly built demonstration SITL

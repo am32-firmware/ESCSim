@@ -140,7 +140,11 @@ bool sitl_tim1_pwm_out(int chan, uint64_t now_ns)
     return (st.cnt_ps / st.tick_ps) < st.ccr[chan];
 }
 
-uint32_t sitl_tim1_dead_time_ns(void) { return st.dead_ns; }
+uint32_t sitl_tim1_dead_time_ns(void)
+{
+    // a model may state the board's dead time; otherwise the emulated TIM1's
+    return sitl_cfg.sim.dead_time_ns ? sitl_cfg.sim.dead_time_ns : st.dead_ns;
+}
 
 /* Renode's EXTI model raises the comparator interrupt from the pin
    change, so motor.c's request is a no-op here */

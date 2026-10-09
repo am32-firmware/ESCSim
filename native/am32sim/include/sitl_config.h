@@ -59,6 +59,26 @@ typedef struct {
         // threshold this long before the output commits (inertial
         // propagation - constant delay, absorbs shorter pulses)
         uint32_t comparator_min_toggle_ns;
+        float comparator_pwm_glitch_mv;
+        uint32_t comparator_pwm_glitch_ns;
+        float comparator_offset_mv;
+        // bench-measured unipolar excursions (TBS 12S L431, unloaded): the
+        // comparator reads the floating phase below the neutral in a ramp
+        // through the high-side on-time and in a lobe some microseconds
+        // after the turn-off; the lobe shrinks with speed as (ref/rpm)^exp
+        float comparator_on_ramp_mv_per_us;
+        uint32_t comparator_on_ramp_delay_ns;
+        float comparator_on_ramp_max_mv;
+        float comparator_off_lobe_mv;
+        uint32_t comparator_off_lobe_delay_ns;
+        uint32_t comparator_off_lobe_width_ns;
+        uint32_t comparator_off_lobe_ref_rpm;
+        float comparator_off_lobe_rpm_exp;
+        float comparator_off_notch_mv; // brief opposite swing just ahead of the lobe
+        uint32_t dead_time_ns; // board dead time when nonzero (the emulated TIM1 otherwise)
+        float comparator_ring_mv;
+        uint32_t comparator_ring_hz;
+        uint32_t comparator_ring_tau_ns;
         // mainline progress lease: simulated time may not run further
         // than this ahead of the last firmware-thread interception
         // while the mainline is runnable. Bounds sim-visible mainline

@@ -1,0 +1,28 @@
+{
+  "motor": {
+    "kv": 170,
+    "poles": 28,
+    "resistance": 0.03,
+    "inductance": 4e-05,
+    "mutual_inductance": 0,
+    "inertia": 0.0005,
+    "damping": 5e-06,
+    "static_friction": 0.01,
+    "load_k_omega2": 5e-06
+  },
+  "battery": {
+    "voltage": 50.4,
+    "resistance": 0.02,
+    "capacitance": 0.002,
+    "sink_resistance": 0.02,
+    "sink_current_max": 0
+  },
+  "esc": {
+    "rds_on": 0.002,
+    "diode_vf": 0.7,
+    "commutation_transfer": 0
+  },
+  "sim": {
+    "comparator_noise_mv": 0
+  }
+}

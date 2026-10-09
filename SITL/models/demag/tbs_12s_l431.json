@@ -1,0 +1,47 @@
+{
+  "motor": {
+    "kv": 1100,
+    "poles": 14,
+    "resistance": 0.05,
+    "inductance": 1e-05,
+    "mutual_inductance": 0,
+    "inertia": 1.5e-05,
+    "damping": 2e-07,
+    "static_friction": 0.002,
+    "load_k_omega2": 2e-09
+  },
+  "battery": {
+    "voltage": 19.8,
+    "resistance": 0.03,
+    "capacitance": 0.002,
+    "sink_resistance": 0.02,
+    "sink_current_max": 0
+  },
+  "esc": {
+    "rds_on": 0.002,
+    "diode_vf": 0.7,
+    "commutation_transfer": 0
+  },
+  "sim": {
+    "comparator_noise_mv": 320,
+    "comparator_offset_mv": 6,
+    "comparator_min_toggle_ns": 100,
+    "comparator_pwm_glitch_mv": 2000,
+    "comparator_pwm_glitch_ns": 600,
+    "comparator_ring_mv": 1200,
+    "comparator_on_ramp_mv_per_us": 0,
+    "comparator_on_ramp_delay_ns": 2000,
+    "comparator_on_ramp_max_mv": 1500,
+    "comparator_off_lobe_mv": 420,
+    "comparator_off_lobe_delay_ns": 6000,
+    "comparator_off_lobe_width_ns": 5000,
+    "comparator_off_lobe_ref_rpm": 3700,
+    "comparator_off_lobe_rpm_exp": 1.0,
+    "comparator_off_notch_mv": 150,
+    "comparator_hold_pending": true,
+    "dead_time_ns": 1500,
+    "physics_dt_ns": 250,
+    "comparator_ring_hz": 700000,
+    "comparator_ring_tau_ns": 4000
+  }
+}

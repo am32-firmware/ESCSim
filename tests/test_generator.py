@@ -42,6 +42,16 @@ def test_generate_uses_packaged_resources(tmp_path, monkeypatch):
     assert generator.renode_path(generator.HERE) in repl_text
 
 
+def test_bridge_physics_step_defaults_and_overrides(tmp_path, monkeypatch):
+    configure_real_header(tmp_path, monkeypatch)
+    _resc, repl = generator.generate("VIMDRONES_L431", str(tmp_path / "default"))
+    assert "batchUs: 20" in Path(repl).read_text()
+    _resc, repl = generator.generate(
+        "VIMDRONES_L431", str(tmp_path / "fine"), physics_us=2
+    )
+    assert "batchUs: 2" in Path(repl).read_text()
+
+
 def test_a153_generation_uses_packaged_rom_without_compiler(tmp_path, monkeypatch):
     configure_real_header(tmp_path, monkeypatch)
     monkeypatch.setenv("PATH", "")

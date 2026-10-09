@@ -1804,7 +1804,7 @@ def platform(cfg, sigrok=False):
             "// target: many rotate the phases across these six pins, so they",
             "// are stated rather than defaulted.",
             "bridge: Miscellaneous.AM32_F051_Bridge @ sysbus 0x%08X" % spec["bridge"],
-            "    batchUs: 20",
+            "    batchUs: %d" % cfg.get("physics_us", 20),
             "    timerHz: %d" % spec["timer_hz"],
             "    timerAf: %d" % spec["timer_af"],
             "    gpioABase: 0x%08X" % spec["gpio_a"],
@@ -2210,9 +2210,15 @@ def generate(
     bootloader_elf=None,
     no_firmware=False,
     targets_text=None,
+    physics_us=20,
 ):
-    """write the pair, return (resc, repl). Raises Unsupported."""
+    """write the pair, return (resc, repl). Raises Unsupported.
+
+    physics_us is the bridge physics step: 20 keeps emulation fast, a few
+    microseconds resolves sub-sector timing (comparator edges, timer events
+    within a sector) at a proportional cost in speed."""
     cfg = config(target, nm, targets_text=targets_text)
+    cfg["physics_us"] = physics_us
     os.makedirs(outdir, exist_ok=True)
     repl = os.path.join(outdir, "%s.repl" % target)
     resc = os.path.join(outdir, "%s.resc" % target)
@@ -3074,6 +3080,13 @@ def main(argv=None):
     )
     ap.add_argument("--list", action="store_true", help="the targets this can emulate")
     ap.add_argument(
+        "--physics-us",
+        type=int,
+        default=20,
+        help="bridge physics step in microseconds (default 20; smaller resolves "
+        "sub-sector timing at a proportional cost in speed)",
+    )
+    ap.add_argument(
         "--run", action="store_true", help="launch renode on the generated platform"
     )
     ap.add_argument(
@@ -3333,6 +3346,8 @@ def main(argv=None):
         ap.error("--no-firmware and --elf are mutually exclusive")
     if args.blank_eeprom and args.eeprom is not None:
         ap.error("--blank-eeprom and --eeprom are mutually exclusive")
+    if args.physics_us < 1:
+        ap.error("--physics-us must be at least 1")
     try:
         cfg = config(args.target, args.nm, targets_text=targets_text)
         resc, repl = generate(
@@ -3343,6 +3358,7 @@ def main(argv=None):
             bootloader_elf=args.bootloader_elf,
             no_firmware=args.no_firmware,
             targets_text=targets_text,
+            physics_us=args.physics_us,
         )
     except Unsupported as e:
         print("SKIP: %s" % e)

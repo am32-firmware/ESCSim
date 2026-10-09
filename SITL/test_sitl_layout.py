@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from PySide6.QtCore import QRect
+from PySide6.QtCore import QCoreApplication, QEvent, QRect
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QTabWidget
 from sitl_gui import EscFleet
@@ -62,7 +62,13 @@ class LaptopLayoutTests(unittest.TestCase):
         self.scope.close()
         self.fleet.close()
         self.fleet.win.close()
+        # Delete the windows now rather than leaving them to PySide's
+        # cleanup at interpreter exit, which crashes in PySide6 6.12.
+        self.scope.deleteLater()
+        self.fleet.win.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         self.app.processEvents()
+        self.scope = self.fleet = None
         self.tmp.cleanup()
 
     def test_disabled_usb_does_not_lock_esc_count(self):

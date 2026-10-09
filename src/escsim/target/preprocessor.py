@@ -197,6 +197,24 @@ def _condition(expression: str, macros: dict[str, str]) -> bool:
     return _Expression(expression, macros).parse()
 
 
+def _logical_lines(text: str) -> list[str]:
+    """Join backslash-continued lines as the C preprocessor does; each
+    consumed physical line is left empty so line numbers stay accurate."""
+    physical = text.splitlines()
+    out: list[str] = []
+    index = 0
+    while index < len(physical):
+        line = physical[index]
+        consumed = 0
+        while line.endswith("\\") and index + consumed + 1 < len(physical):
+            consumed += 1
+            line = line[:-1] + " " + physical[index + consumed]
+        out.append(line)
+        out.extend([""] * consumed)
+        index += consumed + 1
+    return out
+
+
 def preprocess_macros(text: str, target: str) -> dict[str, str]:
     """Return final object-macro definitions for one AM32 target."""
 
@@ -205,7 +223,7 @@ def preprocess_macros(text: str, target: str) -> dict[str, str]:
     macros: dict[str, str] = {target: ""}
     stack: list[_Conditional] = []
     active = True
-    for line_number, line in enumerate(_without_comments(text).splitlines(), 1):
+    for line_number, line in enumerate(_logical_lines(_without_comments(text)), 1):
         match = _DIRECTIVE.match(line)
         if not match:
             continue

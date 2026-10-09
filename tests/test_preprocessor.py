@@ -35,6 +35,25 @@ def test_conditionals_definitions_and_undefinitions():
     assert macros["DEFAULT"] == "2"
 
 
+def test_continued_directive_lines():
+    text = """
+#if defined(OTHER) || \\
+    defined(BOARD)
+#define JOINED 1
+#endif
+#define AFTER 2
+"""
+    macros = preprocess_macros(text, "BOARD")
+    assert macros["JOINED"] == "1"
+    assert macros["AFTER"] == "2"
+
+
+def test_continued_lines_keep_error_line_numbers():
+    text = "#if defined(A) || \\\n    defined(B)\n#endif\n#if 1 + 1\n#endif\n"
+    with pytest.raises(PreprocessorError, match="targets.h:4:"):
+        preprocess_macros(text, "BOARD")
+
+
 @pytest.mark.parametrize(
     "text, message",
     [

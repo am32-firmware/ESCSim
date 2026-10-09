@@ -240,6 +240,142 @@ The GUI control port accepts `benchmark KEY|None`, `benchmark_start`,
 `scope_trigger NAME`, `scope_status`, `scope_save PATH`, and `scope_snap PATH`.
 `demag_bench` / `demag_stop` remain aliases for the original partial-duty recipe.
 
+## Bench-calibrated comparator front end
+
+The default comparator model is clean: an RC filter, an inertial response
+time and optional white noise. Real boards are not. Captures on two bench
+ESCs with unloaded motors, a TBS 12S L431 CAN at 19.8 V and a Sequre G431
+CAN at 16.5 V, both at 24 kHz PWM and 15 degrees advance, show:
+
+- a dip of 0.5 to 1.5 us at every PWM edge from early in the sector, and
+  bursts of about three toggles over about 7 us per edge across roughly a
+  quarter of the sector around the crossing (TBS at 15 % throttle);
+- the comparator reading the floating phase below the neutral a few
+  microseconds after the high-side turn-off, long enough to pass the
+  firmware's crossing filter. The stock firmware therefore accepts the
+  crossing of falling sectors early, on that excursion, and the crossing of
+  rising sectors on the quiet off-period. `commutation_interval` averages
+  the two, so the motor runs smoothly, but individual intervals alternate.
+
+The alternation was measured with a debug build that records every accepted
+crossing with its polarity, interval and TIM1 counter, read back over SWD,
+512 crossings of each polarity per point:
+
+| Throttle | TBS RPM | TBS rising/falling | G431 RPM | G431 rising/falling |
+|---:|---:|---:|---:|---:|
+| 8 % | 2,000 | 2.54 | 1,828 | 2.80 |
+| 10 % | 2,514 | 2.08 | 2,200 | 2.65 |
+| 15 % | 3,700 | 1.375 | 3,214 | 2.49 |
+| 20 % | 4,742 | 1.126 | 4,171 | 2.07 |
+| 25 % | 5,885 | 1.081 | 5,014 | 1.52 |
+| 30 % | 6,885 | 1.046 | 6,057 | 1.46 |
+
+The TBS accepts the falling-sector crossing about 9 us after the turn-off,
+the G431 about 5 us after it; within one polarity the crossing spreads by
+about 5 % of a sector. On the G431 the turn-off glitch itself is sometimes
+accepted as a rising crossing from 25 % throttle on.
+
+The physics models this with these `sim` keys, all off by default:
+
+| Key | Models |
+|---|---|
+| `comparator_pwm_glitch_mv`, `_ns` | a pulse at every driven-leg edge, decaying with the time constant |
+| `comparator_ring_mv`, `_hz`, `_tau_ns` | a damped oscillation after every driven-leg edge |
+| `comparator_on_ramp_mv_per_us`, `_delay_ns`, `_max_mv` | a ramp through the high-side on-time |
+| `comparator_off_lobe_mv`, `_delay_ns`, `_width_ns` | a half-sine excursion after the high-side turn-off |
+| `comparator_off_lobe_ref_rpm`, `_rpm_exp` | lobe amplitude scaled as (ref_rpm / rpm) ^ exp |
+| `comparator_off_notch_mv` | a brief opposite swing just ahead of the lobe |
+| `comparator_offset_mv` | an input offset that holds the output steady at rest |
+| `dead_time_ns` | the board's dead time instead of the emulated timer's |
+
+The firmware's own SITL also takes `comparator_hold_pending` (the G071 and
+L431 handlers' held in-window edge), `irq_latency_ns`, `interval_timer_bits`
+and the demag guard's policy limits; the Renode physics ignores those, since
+there the real firmware and the emulated MCU provide that behaviour.
+
+Models calibrated with these keys are in `SITL/models/demag/`, a
+subdirectory so the GUI's model list does not offer them:
+
+| Model | Purpose |
+|---|---|
+| `tbs_12s_l431` | the TBS bench, unloaded; reproduces its alternation |
+| `tbs_12s_l431_prop` | the same motor with a propeller-like load, glitch and ring only, for loaded light-duty sweeps |
+| `sequre_g431` | the G431 bench, unloaded; earlier and larger turn-off lobe |
+| `large_12s`, `large_12s_realcomp` | 170 KV, 28 poles, 12S, with an ideal and a realistic comparator, for overload runs |
+
+Rising/falling interval ratio of the stock firmware on the calibrated
+models against the bench, at the nearest duty:
+
+| TBS duty, bench / model | TBS ratio, bench / model | G431 duty, bench / model | G431 ratio, bench / model |
+|---|---|---|---|
+| 193 / 188 | 2.54 / 2.59 | 193 / 188 | 2.80 / 2.76 |
+| 232 / 228 | 2.08 / 1.79 | 232 / 226 | 2.65 / 2.73 |
+| 330 / 308 | 1.375 / 1.27 | 330 / 305 | 2.49 / 2.59 |
+| 429 / 428 | 1.126 / 1.07 | 429 / 423 | 2.07 / 1.96 |
+| 528 / 508 | 1.081 / 1.04 | 528 / 502 | 1.52 / 1.65 |
+| 624 / 588 | 1.046 / 1.03 | 624 / 619 | 1.46 / 1.34 |
+
+The bench models use a 250 ns physics step and a 320 mV white-noise proxy
+for chatter the model does not otherwise reproduce; without it the simulated
+acceptance locks to the PWM phase. Run them with the bench's EEPROM settings:
+`--loop-ns 250 --advance 2 --set MOTOR_KV=27 --set MOTOR_POLES=14
+--set MIN_DUTY_CYCLE=4`.
+
+The Renode physics in this repository understands every key above. The
+firmware's own SITL rejects model keys it does not know, so a SITL run with
+these models needs a firmware tree whose `Mcu/SITL` has the same comparator
+model; until then, use them with Renode.
+
+## Headless demag runs
+
+`SITL/demag_run.py` runs a recipe, or a throttle sweep after the recipe's
+arming stage, against the native SITL; `SITL/demag_renode.py` runs a recipe
+against the real ARM firmware in Renode. Each run writes `result.json`
+(settings, model, command, per-stage metrics, checks) and its inputs to its
+own output directory.
+
+```sh
+# a recipe on the default model
+python3 SITL/demag_run.py --outdir /path/to/out/overload \
+    --benchmark demag_full_overload --hold 5
+
+# a sweep on the TBS bench model, reporting the rising/falling ratio
+python3 SITL/demag_run.py --sitl /path/to/AM32/obj/AM32_AM32_SITL_CAN_2.21.elf \
+    --outdir /path/to/out/tbs --model demag/tbs_12s_l431 --sweep 200:600:40 \
+    --hold 2 --loop-ns 250 --advance 2 \
+    --set MOTOR_KV=27 --set MOTOR_POLES=14 --set MIN_DUTY_CYCLE=4
+
+# the same bench in Renode, at a 2 us physics step
+python3 SITL/demag_renode.py --target VIMDRONES_L431 \
+    --elf /path/to/AM32/obj/AM32_VIMDRONES_L431_2.21.elf --outdir /path/to/out/l431 \
+    --model demag/tbs_12s_l431 --throttle-cap 300 --hold 2 --physics-us 2 \
+    --set MOTOR_KV=27 --set MOTOR_POLES=14 --set MIN_DUTY_CYCLE=4
+```
+
+`--sim KEY=VALUE` overrides a model key, `--set` an EEPROM setting and
+`--loads` the load of each recipe load stage. `--profile g071` or `f051`
+gives the SITL Cortex-M0+/M0 register-read and interrupt-entry costs, the
+held in-window comparator edge and the interval timer width. A SITL binary
+inside a firmware checkout's `obj/` takes its EEPROM defaults from that
+checkout unless `AM32_ROOT` is set.
+
+The checks in `result.json` are: the run completed; no desync while powered;
+sustained rotation (above 3,000 RPM at full throttle, steady at part
+throttle); positive torque and duty; a contiguous 50 us record; zero duty
+at the stop. Each sweep step also records the mean rising and falling
+crossing interval and their ratio. When the firmware has the demag guard,
+its counters are recorded as well, and the checks add no latched fault and,
+in a sweep, predictions on at most 2 % of guarded sectors (Renode: no guard
+exit and no late service). A desync first counted at the final zero-throttle
+stop is reported as `desyncs_at_stop` and is not a failure: with the noisy
+bench models the stock firmware counts one while spinning down.
+
+Practical limits: a 250 ns physics model runs slower than real time per
+core, and DShot decoding fails when the physics falls too far behind, so
+run at most two such cases at once. The lowest sweep step on the bench
+models (throttle 160) can settle in either of two operating points from
+one run to the next for any firmware; start sweeps at 200.
+
 Instrument control reference:
 [Rigol DHO800 User Guide](https://www.rigol.com/dam/global/downloads/brochures/en/user-manual/oscillosopes/DHO800_UserGuide_EN.pdf).
 

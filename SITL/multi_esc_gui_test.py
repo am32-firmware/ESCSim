@@ -86,7 +86,10 @@ def main():
                     usb(USB_SERIAL)
                     assert direct[-1]['sitl_port'] == fleet.panels[7].args.port
                     assert direct[-1]['state_port'] == fleet.panels[7].args.state_port
-                    assert (direct[-1]['endpoint'].vid, direct[-1]['endpoint'].pid) == (
+                    # the bridge gets the USB device through the link fault
+                    # wrapper; the identity is the wrapped device's
+                    endpoint = getattr(direct[-1]['endpoint'], 'endpoint', direct[-1]['endpoint'])
+                    assert (endpoint.vid, endpoint.pid) == (
                         sitl_usbip.DIRECT_VENDOR_ID, sitl_usbip.DIRECT_PRODUCT_ID)
                     usb(0)
                 else:

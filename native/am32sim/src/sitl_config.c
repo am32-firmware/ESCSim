@@ -57,6 +57,22 @@ sitl_config_t sitl_cfg = {
         .comparator_phase_rc_ns = 800,
         .comparator_neutral_rc_ns = 800,
         .comparator_min_toggle_ns = 2000,
+        .comparator_pwm_glitch_mv = 0.0f,
+        .comparator_pwm_glitch_ns = 1000,
+        .comparator_offset_mv = 0.0f,
+        .comparator_on_ramp_mv_per_us = 0.0f,
+        .comparator_on_ramp_delay_ns = 1000,
+        .comparator_on_ramp_max_mv = 0.0f,
+        .comparator_off_lobe_mv = 0.0f,
+        .comparator_off_lobe_delay_ns = 5000,
+        .comparator_off_lobe_width_ns = 6000,
+        .comparator_off_lobe_ref_rpm = 0,
+        .comparator_off_lobe_rpm_exp = 1.0f,
+        .comparator_off_notch_mv = 0.0f,
+        .dead_time_ns = 0,
+        .comparator_ring_mv = 0.0f,
+        .comparator_ring_hz = 700000,
+        .comparator_ring_tau_ns = 2500,
         .fw_lag_max_ns = 20000,
         .watchdog_enabled = true,
     },
@@ -115,6 +131,22 @@ static const struct cfg_entry cfg_table[] = {
     { "sim", "comparator_phase_rc_ns", CFG_U32, &sitl_cfg.sim.comparator_phase_rc_ns },
     { "sim", "comparator_neutral_rc_ns", CFG_U32, &sitl_cfg.sim.comparator_neutral_rc_ns },
     { "sim", "comparator_min_toggle_ns", CFG_U32, &sitl_cfg.sim.comparator_min_toggle_ns },
+    { "sim", "comparator_pwm_glitch_mv", CFG_FLOAT, &sitl_cfg.sim.comparator_pwm_glitch_mv },
+    { "sim", "comparator_pwm_glitch_ns", CFG_U32, &sitl_cfg.sim.comparator_pwm_glitch_ns },
+    { "sim", "comparator_offset_mv", CFG_FLOAT, &sitl_cfg.sim.comparator_offset_mv },
+    { "sim", "comparator_on_ramp_mv_per_us", CFG_FLOAT, &sitl_cfg.sim.comparator_on_ramp_mv_per_us },
+    { "sim", "comparator_on_ramp_delay_ns", CFG_U32, &sitl_cfg.sim.comparator_on_ramp_delay_ns },
+    { "sim", "comparator_on_ramp_max_mv", CFG_FLOAT, &sitl_cfg.sim.comparator_on_ramp_max_mv },
+    { "sim", "comparator_off_lobe_mv", CFG_FLOAT, &sitl_cfg.sim.comparator_off_lobe_mv },
+    { "sim", "comparator_off_lobe_delay_ns", CFG_U32, &sitl_cfg.sim.comparator_off_lobe_delay_ns },
+    { "sim", "comparator_off_lobe_width_ns", CFG_U32, &sitl_cfg.sim.comparator_off_lobe_width_ns },
+    { "sim", "comparator_off_lobe_ref_rpm", CFG_U32, &sitl_cfg.sim.comparator_off_lobe_ref_rpm },
+    { "sim", "comparator_off_lobe_rpm_exp", CFG_FLOAT, &sitl_cfg.sim.comparator_off_lobe_rpm_exp },
+    { "sim", "comparator_off_notch_mv", CFG_FLOAT, &sitl_cfg.sim.comparator_off_notch_mv },
+    { "sim", "dead_time_ns", CFG_U32, &sitl_cfg.sim.dead_time_ns },
+    { "sim", "comparator_ring_mv", CFG_FLOAT, &sitl_cfg.sim.comparator_ring_mv },
+    { "sim", "comparator_ring_hz", CFG_U32, &sitl_cfg.sim.comparator_ring_hz },
+    { "sim", "comparator_ring_tau_ns", CFG_U32, &sitl_cfg.sim.comparator_ring_tau_ns },
     { "sim", "fw_lag_max_ns", CFG_U32, &sitl_cfg.sim.fw_lag_max_ns },
     { "sim", "watchdog_enabled", CFG_BOOL, &sitl_cfg.sim.watchdog_enabled },
 };
@@ -144,6 +176,20 @@ static bool set_value(const char* section, const char* js, const jsmntok_t* key,
             break;
         }
         return true;
+    }
+    // keys only the firmware's own SITL emulation consumes (interrupt and
+    // timer behaviour, policy limits): in Renode the real firmware and the
+    // emulated MCU provide these, so a shared model file may carry them
+    static const char* const firmware_only[] = {
+        "comparator_hold_pending", "demag_deadline_margin_ticks", "demag_max_advance_level",
+        "demag_min_wait_ticks", "interval_timer_bits", "irq_latency_ns",
+    };
+    if (strcmp(section, "sim") == 0) {
+        for (unsigned i = 0; i < sizeof(firmware_only) / sizeof(firmware_only[0]); i++) {
+            if (strcmp(keystr, firmware_only[i]) == 0) {
+                return true;
+            }
+        }
     }
     fprintf(stderr, "SITL: %s: unknown config key %s.%s\n", path, section, keystr);
     return false;

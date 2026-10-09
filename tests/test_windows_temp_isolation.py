@@ -27,15 +27,24 @@ def test_protected_pid_in_shared_temp_cannot_break_startup(tmp_path):
     marker.write_text("unrelated process data")
     env = dict(os.environ, TEMP=str(tmp_path), TMP=str(tmp_path), TMPDIR=str(tmp_path))
     renode = download.cached(download.default_cache()) or download.install_current()[0]
-    command = renode_command(renode, 0, 'python "from Antmicro.Renode.Utilities import TemporaryFilesManager; '
-                             'print TemporaryFilesManager.Instance.EmulatorTemporaryPath"; quit')
+    command = renode_command(
+        renode,
+        0,
+        'python "from Antmicro.Renode.Utilities import TemporaryFilesManager; '
+        'print TemporaryFilesManager.Instance.EmulatorTemporaryPath"; quit',
+    )
     logs = []
     for isolated in (False, True):
         log = tmp_path / ("isolated.log" if isolated else "shared.log")
         with log.open("w") as stream:
-            tree = ProcessTree(command, isolate_temp=isolated, env=env,
-                               stdin=subprocess.PIPE, stdout=stream,
-                               stderr=subprocess.STDOUT)
+            tree = ProcessTree(
+                command,
+                isolate_temp=isolated,
+                env=env,
+                stdin=subprocess.PIPE,
+                stdout=stream,
+                stderr=subprocess.STDOUT,
+            )
             if isolated:
                 private_root = Path(tree._temp_directory.name)
             try:
@@ -43,7 +52,9 @@ def test_protected_pid_in_shared_temp_cannot_break_startup(tmp_path):
                 # `quit`. Observe that error while retaining an open stdin.
                 deadline = time.monotonic() + 45
                 while tree.running() and time.monotonic() < deadline:
-                    if not isolated and "Access is denied" in log.read_text(errors="replace"):
+                    if not isolated and "Access is denied" in log.read_text(
+                        errors="replace"
+                    ):
                         break
                     time.sleep(0.1)
             finally:

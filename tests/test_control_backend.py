@@ -81,15 +81,22 @@ def test_state_stream_delivers_legacy_and_extended_scope_samples(version):
         # The v3 suffix carries BEMF/filter/diode/duty/desync values. Two
         # samples catch an incorrect stride as well as a dropped packet.
         layout = struct.Struct("<Q11f3sBB3x" + ("7f3sxfI" if version == 3 else ""))
-        suffix = (1., 2., 3., 4., 5., 6., 7., b"\x01\x00\x01", .5, 19) if version == 3 else ()
-        values = [(t, *range(11), b"\x00\x01\x02", 1, 0, *suffix)
-                  for t in (100000, 150000)]
+        suffix = (
+            (1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, b"\x01\x00\x01", 0.5, 19)
+            if version == 3
+            else ()
+        )
+        values = [
+            (t, *range(11), b"\x00\x01\x02", 1, 0, *suffix) for t in (100000, 150000)
+        ]
         packet = struct.pack("<HBB", SimStream.MAGIC_DATA, version, 2)
-        server.sendto(packet + b"".join(layout.pack(*row) for row in values),
-                      sim.sock.getsockname())
+        server.sendto(
+            packet + b"".join(layout.pack(*row) for row in values),
+            sim.sock.getsockname(),
+        )
         deadline = time.monotonic() + 2
         while len(captured) < 2 and time.monotonic() < deadline:
-            time.sleep(.01)
+            time.sleep(0.01)
         assert len(captured) == 2
         assert list(sim.samples) == captured
         for actual, expected in zip(captured, values):

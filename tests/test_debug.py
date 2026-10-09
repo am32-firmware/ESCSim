@@ -19,11 +19,16 @@ def workspace_args(tmp_path, monkeypatch):
     arm_gdb.parent.mkdir(parents=True)
     arm_gdb.touch()
     arm_gdb.with_name("arm-none-eabi-gcc.exe").touch()
-    monkeypatch.setattr(debug, "cygpath", lambda root, path: "/cygdrive/c/AM32 firmware")
+    monkeypatch.setattr(
+        debug, "cygpath", lambda root, path: "/cygdrive/c/AM32 firmware"
+    )
     monkeypatch.setattr(debug.subprocess, "run", lambda *a, **kw: None)
-    monkeypatch.setattr(debug.sys, "executable", str(tmp_path / "Installed app/ESCSim-cli.exe"))
-    return argparse.Namespace(repo=repo, cygwin=cygwin, arm_gdb=arm_gdb,
-                              target="VIMDRONES_L431", force=False)
+    monkeypatch.setattr(
+        debug.sys, "executable", str(tmp_path / "Installed app/ESCSim-cli.exe")
+    )
+    return argparse.Namespace(
+        repo=repo, cygwin=cygwin, arm_gdb=arm_gdb, target="VIMDRONES_L431", force=False
+    )
 
 
 def test_workspace_keeps_existing_vscode_and_uses_matching_debuggers(workspace_args):
@@ -41,13 +46,14 @@ def test_workspace_keeps_existing_vscode_and_uses_matching_debuggers(workspace_a
     assert "escsim-sitl/firmware.exe" in sitl["program"]
     assert "escsim-renode/firmware.elf" in renode["program"]
     assert renode["debugServerPath"].endswith("ESCSim-cli.exe")
-    assert '--targets-file' in renode["debugServerArgs"]
+    assert "--targets-file" in renode["debugServerArgs"]
     assert sitl["setupCommands"] == [{"text": "handle SIGUSR1 nostop noprint pass"}]
     # Cygwin sleeps can reduce simulation speed to a crawl; an unread GDB
     # stderr pipe must not block the firmware either.
     assert "--nosleep" in sitl["args"]
     assert sitl["args"][sitl["args"].index("--log") + 1] == (
-        "${workspaceFolder}/build/escsim-sitl/firmware.log")
+        "${workspaceFolder}/build/escsim-sitl/firmware.log"
+    )
     tasks = document["tasks"]["tasks"]
     for launch in (sitl, renode):
         task = next(task for task in tasks if task["label"] == launch["preLaunchTask"])

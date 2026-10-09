@@ -18,8 +18,12 @@ from escsim.renode.process import ProcessTree
 
 class Adapter:
     def __init__(self, executable):
-        self.tree = ProcessTree([str(executable)], stdin=subprocess.PIPE,
-                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        self.tree = ProcessTree(
+            [str(executable)],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
         self.messages = queue.Queue()
         self.pending = []
         self.sequence = 0
@@ -42,9 +46,17 @@ class Adapter:
 
     def send(self, command, arguments=None):
         self.sequence += 1
-        payload = json.dumps({"seq": self.sequence, "type": "request",
-                              "command": command, "arguments": arguments or {}}).encode()
-        self.tree.process.stdin.write(f"Content-Length: {len(payload)}\r\n\r\n".encode() + payload)
+        payload = json.dumps(
+            {
+                "seq": self.sequence,
+                "type": "request",
+                "command": command,
+                "arguments": arguments or {},
+            }
+        ).encode()
+        self.tree.process.stdin.write(
+            f"Content-Length: {len(payload)}\r\n\r\n".encode() + payload
+        )
         self.tree.process.stdin.flush()
         return self.sequence
 
@@ -52,7 +64,10 @@ class Adapter:
         deadline = time.monotonic() + timeout
         while True:
             for index, message in enumerate(self.pending):
-                if message.get("type") == "response" and message.get("success") is False:
+                if (
+                    message.get("type") == "response"
+                    and message.get("success") is False
+                ):
                     raise RuntimeError(message)
                 if predicate(message):
                     return self.pending.pop(index)
@@ -77,25 +92,42 @@ class Adapter:
 def validate(executable, workspace, backend, build=False):
     workspace = workspace.resolve()
     document = json.loads(workspace.read_text())
-    launch = next(item for item in document["launch"]["configurations"]
-                  if item["name"] == "ESCSim " + backend)
-    launch = json.loads(json.dumps(launch).replace("${workspaceFolder}",
-                                                 workspace.parent.as_posix()))
+    launch = next(
+        item
+        for item in document["launch"]["configurations"]
+        if item["name"] == "ESCSim " + backend
+    )
+    launch = json.loads(
+        json.dumps(launch).replace("${workspaceFolder}", workspace.parent.as_posix())
+    )
     task_name = launch.pop("preLaunchTask", None)
     if build:
-        task = next(item for item in document["tasks"]["tasks"] if item["label"] == task_name)
+        task = next(
+            item for item in document["tasks"]["tasks"] if item["label"] == task_name
+        )
         command = [task["command"], *task["args"]]
-        command = [part.replace("${workspaceFolder}", workspace.parent.as_posix()) for part in command]
+        command = [
+            part.replace("${workspaceFolder}", workspace.parent.as_posix())
+            for part in command
+        ]
         subprocess.run(command, cwd=workspace.parent, check=True, timeout=600)
     adapter = Adapter(executable)
     try:
-        adapter.request("initialize", {"adapterID": "cppdbg", "linesStartAt1": True,
-                        "columnsStartAt1": True, "pathFormat": "path"})
+        adapter.request(
+            "initialize",
+            {
+                "adapterID": "cppdbg",
+                "linesStartAt1": True,
+                "columnsStartAt1": True,
+                "pathFormat": "path",
+            },
+        )
         launching = adapter.send("launch", launch)
         adapter.event("initialized")
         function = "sitl_input_init" if backend == "SITL" else "main"
-        result = adapter.request("setFunctionBreakpoints", {
-            "breakpoints": [{"name": function}]})
+        result = adapter.request(
+            "setFunctionBreakpoints", {"breakpoints": [{"name": function}]}
+        )
         assert result["breakpoints"][0]["verified"], result
         adapter.request("configurationDone")
         adapter.response(launching)
@@ -109,24 +141,35 @@ def validate(executable, workspace, backend, build=False):
         assert Path(frame["source"]["path"]).is_file(), frame
         # Function breakpoints do not exercise VS Code's reverse source-path
         # mapping. Verify a gutter breakpoint at a known executable line too.
-        source_breakpoint = adapter.request("setBreakpoints", {
-            "source": {"path": frame["source"]["path"]},
-            "breakpoints": [{"line": frame["line"]}]})
+        source_breakpoint = adapter.request(
+            "setBreakpoints",
+            {
+                "source": {"path": frame["source"]["path"]},
+                "breakpoints": [{"line": frame["line"]}],
+            },
+        )
         assert source_breakpoint["breakpoints"][0]["verified"], source_breakpoint
         adapter.request("evaluate", {"expression": "$pc", "frameId": frame["id"]})
-        memory = adapter.request("readMemory", {
-            "memoryReference": frame["instructionPointerReference"], "count": 16})
+        memory = adapter.request(
+            "readMemory",
+            {"memoryReference": frame["instructionPointerReference"], "count": 16},
+        )
         assert memory.get("data"), memory
         scopes = adapter.request("scopes", {"frameId": frame["id"]})
         for scope in scopes["scopes"]:
-            adapter.request("variables", {"variablesReference": scope["variablesReference"]})
+            adapter.request(
+                "variables", {"variablesReference": scope["variablesReference"]}
+            )
         adapter.request("next", {"threadId": stopped["threadId"]})
         stepped = adapter.event("stopped")
         adapter.request("stackTrace", {"threadId": stepped["threadId"]})
         adapter.request("disconnect", {"terminateDebuggee": True})
         # Check normal adapter shutdown before the outer safety net stops it.
         adapter.tree.process.wait(timeout=30)
-        print(f"PASS {backend}: function/source breakpoints, source, scopes, variables, registers, memory, step, disconnect", flush=True)
+        print(
+            f"PASS {backend}: function/source breakpoints, source, scopes, variables, registers, memory, step, disconnect",
+            flush=True,
+        )
     finally:
         adapter.tree.stop()
 
@@ -136,9 +179,11 @@ def main():
     parser.add_argument("--adapter", type=Path, required=True)
     parser.add_argument("--workspace", type=Path, required=True)
     parser.add_argument("--backend", choices=("SITL", "Renode"))
-    parser.add_argument("--build", action="store_true", help="run each workspace build task first")
+    parser.add_argument(
+        "--build", action="store_true", help="run each workspace build task first"
+    )
     args = parser.parse_args()
-    for backend in ([args.backend] if args.backend else ["SITL", "Renode"]):
+    for backend in [args.backend] if args.backend else ["SITL", "Renode"]:
         validate(args.adapter, args.workspace, backend, args.build)
 
 

@@ -172,8 +172,13 @@ def test_private_temp_is_inherited_without_changing_parent_environment():
         "[os.environ[k] for k in ('TEMP','TMP','TMPDIR')], "
         "os.environ['ESCSIM_TEMP_TEST']]))"
     )
-    tree = ProcessTree([sys.executable, "-c", code], isolate_temp=True,
-                       env=environment, stdout=subprocess.PIPE, text=True)
+    tree = ProcessTree(
+        [sys.executable, "-c", code],
+        isolate_temp=True,
+        env=environment,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
     try:
         output, _ = tree.process.communicate(timeout=15)
         root, variables, preserved = json.loads(output)

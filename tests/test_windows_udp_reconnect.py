@@ -66,11 +66,15 @@ def test_telemetry_disconnect_keeps_listener_alive(monkeypatch):
                 assert reply.startswith(b"YS")
                 break
             else:
-                pytest.fail("Renode stopped answering after its subscriber disconnected")
+                pytest.fail(
+                    "Renode stopped answering after its subscriber disconnected"
+                )
 
     monkeypatch.setattr(parity, "wait_ready", reconnect_after_ready)
     repository = parity.ArtifactRepository()
     release = repository.catalog()["channels"]["stable"]["firmware"]
     renode = parity.renode_download.install_current()[0]
-    result = parity.run_one(repository, renode, "VIMDRONES_L431", "bdshot", release, "elf")
+    result = parity.run_one(
+        repository, renode, "VIMDRONES_L431", "bdshot", release, "elf"
+    )
     assert result["status"] == "passed"

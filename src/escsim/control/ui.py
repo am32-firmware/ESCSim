@@ -1894,12 +1894,18 @@ def create_ui(args=None, app=None, container=None):
                 from .scope_ui import DemagScopeWindow
 
                 virtual_scope = DemagScopeWindow(
-                    sim, lambda: scope_check.setChecked(False), scope_fine_capture,
+                    sim,
+                    lambda: scope_check.setChecked(False),
+                    scope_fine_capture,
                     title=esc_title("Renode" if renode else "SITL"),
-                    metadata=lambda: dict(backend=args.backend, host=args.host,
-                                          state_port=args.state_port,
-                                          requested_sample_us=sample_spin.value()),
-                    controls_window=win, backend=args.backend,
+                    metadata=lambda: dict(
+                        backend=args.backend,
+                        host=args.host,
+                        state_port=args.state_port,
+                        requested_sample_us=sample_spin.value(),
+                    ),
+                    controls_window=win,
+                    backend=args.backend,
                 )
             elif not sim.scope.enabled:
                 virtual_scope.arm()
@@ -2817,11 +2823,19 @@ def create_ui(args=None, app=None, container=None):
             virtual_scope.trigger.setCurrentIndex(index)
         elif cmd == "scope_status":
             generation, frame, state = sim.scope.snapshot()
-            reply("STATUS scope: " + json.dumps(dict(
-                generation=generation, state=state,
-                samples=len(frame.samples) if frame else 0,
-                measurements=frame.measurements(frame.trigger_phase) if frame else None,
-            )))
+            reply(
+                "STATUS scope: "
+                + json.dumps(
+                    dict(
+                        generation=generation,
+                        state=state,
+                        samples=len(frame.samples) if frame else 0,
+                        measurements=frame.measurements(frame.trigger_phase)
+                        if frame
+                        else None,
+                    )
+                )
+            )
             return
         elif cmd == "scope_save":
             if virtual_scope is None or virtual_scope.frame is None:

@@ -3083,7 +3083,8 @@ def main(argv=None):
         "terminal window (implies --run)",
     )
     ap.add_argument(
-        "--gdb-server", action="store_true",
+        "--gdb-server",
+        action="store_true",
         help="wait for an IDE debugger without opening GDB (implies --run)",
     )
     ap.add_argument(
@@ -3349,7 +3350,9 @@ def main(argv=None):
     print(repl)
     print(resc)
 
-    if not (args.run or args.gdb or args.gdb_server or args.gui or args.link or args.sigrok):
+    if not (
+        args.run or args.gdb or args.gdb_server or args.gui or args.link or args.sigrok
+    ):
         return 0
 
     firmware_load = None
